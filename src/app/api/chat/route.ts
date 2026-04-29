@@ -41,9 +41,71 @@ RULES — follow every one without exception:
 
 7. WEAK CONTEXT: If the context does not clearly answer the question, be positive and helpful: "I don't have that specific detail in my current information — for the most accurate answer, reach out to the Financial Aid office directly or visit financialaid.byuh.edu. Is there something else about financial aid I can help with?"
 
-8. TONE: Professional and approachable. Be direct and confident, not overly formal or overly casual.
+8. TONE: Warm, positive, and conversational. Be encouraging and supportive — students are often stressed about finances. Be direct and confident, but never cold or robotic. Use natural language, not bureaucratic phrasing.
 
 9. SOURCES: End grounded answers with the source URL when it is available in the context.`
+
+// ---------------------------------------------------------------------------
+// Conversational opener guard
+//
+// Catches greetings and vague openers like "i have a question" BEFORE
+// retrieval so we can respond warmly instead of returning a dead-end fallback.
+// ---------------------------------------------------------------------------
+const CONVERSATIONAL_OPENER_PATTERNS: RegExp[] = [
+  // Greetings
+  /^\s*(hi+|hey+|hello+|howdy|greetings|good\s+(morning|afternoon|evening|day))[!,.\s]*$/i,
+  // "i have a question" variants
+  /^\s*i\s+(have|got|had)\s+(a\s+)?(quick\s+)?(question|query|concern|inquiry)[!,.\s?]*$/i,
+  // "can you help" variants
+  /^\s*(can\s+you\s+help(\s+me)?|i\s+need\s+help|help\s+me|i\s+need\s+assistance)[!,.\s?]*$/i,
+  // "are you there" / "is anyone there"
+  /^\s*(are\s+you\s+there|is\s+anyone\s+there|anyone\s+here)[!,.\s?]*$/i,
+  // Pure "thanks" / acknowledgements with no follow-up content
+  /^\s*(thanks?|thank\s+you|thx|ty|ok|okay|got\s+it|sure|sounds\s+good|great|awesome|cool|perfect)[!,.\s]*$/i,
+]
+
+const CONVERSATIONAL_OPENER_RESPONSE =
+  "Of course! I'm happy to help. Go ahead and ask your question about BYU–Hawaii financial aid — whether it's about scholarships, FAFSA, tuition, deadlines, required documents, or the iWork program, I've got you covered!"
+
+function isConversationalOpener(message: string): boolean {
+  return CONVERSATIONAL_OPENER_PATTERNS.some((pattern) => pattern.test(message))
+}
+
+// ---------------------------------------------------------------------------
+// Frustration / feedback detector
+//
+// Catches messages where the user is expressing dissatisfaction rather than
+// asking a new question, so we can respond with empathy instead of another
+// unhelpful fallback.
+// ---------------------------------------------------------------------------
+const FRUSTRATION_PATTERNS: RegExp[] = [
+  // "you do/don't know", "you know nothing"
+  /\byou\s+(do\s+not|don'?t)\s+know\b/i,
+  /\byou\s+know\s+nothing\b/i,
+  // "so bad", "this is bad", "that was bad"
+  /\b(so|this\s+is|that\s+(was|is))\s+bad\b/i,
+  // standalone "bad", "terrible", "awful", "useless", "horrible", "worst"
+  /^\s*(bad|terrible|awful|useless|horrible|worst|pathetic|garbage|trash)[!.\s]*$/i,
+  // "not helpful", "that's not helpful", "not useful", "doesn't help"
+  /\b(not\s+(helpful|useful)|that('?s|\s+is)\s+not\s+helpful|doesn'?t\s+help|not\s+helping)\b/i,
+  // "you can't help", "you can't answer", "you don't have answers"
+  /\byou\s+(can'?t|cannot|don'?t)\s+(help|answer|tell\s+me)\b/i,
+  // "i give up", "forget it", "never mind" (with frustration context)
+  /^\s*(i\s+give\s+up|forget\s+it|never\s?mind|this\s+is\s+pointless)[!.\s]*$/i,
+  // "what a waste", "waste of time"
+  /\b(what\s+a\s+waste|waste\s+of\s+(my\s+)?time)\b/i,
+]
+
+const FRUSTRATION_RESPONSE =
+  "I'm sorry I didn't give you a helpful answer — that's genuinely frustrating, and I want to do better. " +
+  "Could you try rephrasing your question with a bit more detail? For example, instead of a general phrase, " +
+  "try something like *\"What scholarships are available for international students?\"* or *\"When is the FAFSA deadline?\"* " +
+  "I'll do my best to find the right answer. And if I still can't help, the **Financial Aid office** at " +
+  "[financialaid.byuh.edu](https://financialaid.byuh.edu/) will have the answer for sure!"
+
+function isFrustration(message: string): boolean {
+  return FRUSTRATION_PATTERNS.some((pattern) => pattern.test(message))
+}
 
 // ---------------------------------------------------------------------------
 // Out-of-scope guard
@@ -382,7 +444,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Message is required." }, { status: 400 })
     }
 
-    // Step 1: Reject clearly out-of-scope questions before touching the DB or OpenAI
+    // Step 1a: Respond warmly to conversational openers (greetings, "i have a question", etc.)
+    if (isConversationalOpener(message)) {
+      console.log("[chat] Conversational opener detected — responding with invitation")
+      return NextResponse.json({
+        mode: "grounded" as ResponseMode,
+        message: CONVERSATIONAL_OPENER_RESPONSE,
+        sources: [],
+      })
+    }
+
+    // Step 1b: Respond with empathy to frustrated or negative feedback messages
+    if (isFrustration(message)) {
+      console.log("[chat] Frustration detected — responding with empathy")
+      return NextResponse.json({
+        mode: "grounded" as ResponseMode,
+        message: FRUSTRATION_RESPONSE,
+        sources: [],
+      })
+    }
+
+    // Step 1c: Reject clearly out-of-scope questions before touching the DB or OpenAI
     if (isOutOfScope(message)) {
       console.log("[chat] Out-of-scope question detected — refusing")
       return NextResponse.json({
@@ -417,9 +499,9 @@ export async function POST(req: Request) {
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
         message:
-          "I don't have that specific detail in my current information. " +
-          "For the most accurate answer, please reach out to the Financial Aid office directly or visit [financialaid.byuh.edu](https://financialaid.byuh.edu/). " +
-          "Is there something else about BYU–Hawaii financial aid I can help you with?",
+          "That's a great question, but I'm not finding a clear answer in my current information. " +
+          "For the most accurate help, I'd recommend reaching out to the **Financial Aid office** directly or visiting [financialaid.byuh.edu](https://financialaid.byuh.edu/) — they'll know for sure. " +
+          "In the meantime, feel free to ask me about **scholarships, FAFSA, tuition costs, deadlines, required documents, or the iWork program** and I'll do my best to help!",
         sources: [],
       })
     }

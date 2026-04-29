@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "powershell -Command \"Remove-Item -Path './.next/dev/lock' -Force -ErrorAction SilentlyContinue; exit 0\"",
-    "dev": "next dev",
+    "predev": "powershell -Command \"Remove-Item -Path './.next/dev/lock' -Force -ErrorAction SilentlyContinue; $p = (Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue).OwningProcess; if ($p) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }; exit 0\"",
+    "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
