@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f7f8;
+  --foreground: #111827;
+
+  /* SOP-aligned BYUH palette */
+  --byuh-crimson: #ba0c2f;
+  --byuh-burgundy: #9e1b34;
+  --byuh-gold: #946f0a;
+  --byuh-navy: #002e5d;
+
+  --sidebar-bg: #9e1b34;
+  --sidebar-hover: rgba(255, 255, 255, 0.12);
+  --border-soft: #e5e7eb;
+  --assistant-bg: #ffffff;
+  --user-bg: #ba0c2f;
+  --muted-text: #6b7280;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-montserrat), Arial, Helvetica, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: var(--byuh-gold);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.prose-links a {
+  color: var(--byuh-gold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
