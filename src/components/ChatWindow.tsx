@@ -27,13 +27,7 @@ export default function ChatWindow({ messages, isLoading, error }: Props) {
       )}
 
       {messages.map((msg) => {
-        const content =
-          msg.parts
-            ?.filter((p) => p.type === "text")
-            .map((p) => (p as { type: "text"; text: string }).text)
-            .join("") ||
-          (msg as unknown as { content?: string }).content ||
-          ""
+        const content = msg.content
 
         return (
           <MessageBubble
