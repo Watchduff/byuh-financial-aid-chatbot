@@ -3,6 +3,7 @@ import { sql, eq, ilike, or } from "drizzle-orm"
 import { db } from "@/db"
 import { chunks, pages } from "@/db/schema"
 import { getEmbedding, generateChatResponse } from "@/lib/openai"
+import { DEFAULT_LANGUAGE_CODE, getSupportedLanguage, type SupportedLanguage } from "@/lib/languages"
 
 // ---------------------------------------------------------------------------
 // Response mode — included in every response so the frontend can render
@@ -45,7 +46,9 @@ RULES — follow every one without exception:
 
 9. PRIVACY: Do not ask users to share private personal information in chat, including Social Security numbers, passwords, FAFSA login information, full student ID numbers, passport numbers, bank details, full tax return details, medical information, immigration documents, or private family financial details. For account-specific records or documents, direct users to official BYU–Hawaii Financial Aid channels.
 
-10. SOURCES: End grounded answers with the source URL when it is available in the context.`
+10. SOURCES: End grounded answers with the source URL when it is available in the context.
+
+11. LANGUAGE: Respond in the user's selected language. Keep official names, office names, email addresses, phone numbers, URLs, and scholarship/program names accurate.`
 
 // ---------------------------------------------------------------------------
 // Conversational opener guard
@@ -358,29 +361,53 @@ function getDemoAnswer(message: string): string | null {
   return null
 }
 
+async function localizeResponse(message: string, language: SupportedLanguage): Promise<string> {
+  if (language.code === DEFAULT_LANGUAGE_CODE) return message
+
+  try {
+    const translated = await generateChatResponse(
+      "You translate BYU-Hawaii Financial Aid chatbot responses. Keep Markdown formatting, URLs, email addresses, phone numbers, official office names, and program names unchanged unless there is a standard translation. Return only the translated response.",
+      `Translate this response into ${language.name} (${language.nativeName}):\n\n${message}`
+    )
+
+    return translated.trim() || message
+  } catch (error) {
+    console.warn("[chat] Localization failed:", error)
+    return message
+  }
+}
+
+function languageInstruction(language: SupportedLanguage): string {
+  return language.code === DEFAULT_LANGUAGE_CODE
+    ? "Respond in English."
+    : `Respond in ${language.name} (${language.nativeName}). Keep BYU-Hawaii, Financial Aid office names, email addresses, phone numbers, URLs, and official program names accurate.`
+}
+
 // ---------------------------------------------------------------------------
 // Shared fallback helper — called whenever the real pipeline is unavailable.
 // Tries a demo answer first; if none matches, returns the unavailable message.
 // No technical error details are ever included in the response body.
 // ---------------------------------------------------------------------------
-function buildFallbackResponse(message: string): NextResponse {
+async function buildFallbackResponse(message: string, language: SupportedLanguage): Promise<NextResponse> {
   const demoAnswer = getDemoAnswer(message)
   if (demoAnswer) {
     console.log("[chat] Serving demo response")
     return NextResponse.json({
       mode: "demo" as ResponseMode,
-      message: demoAnswer,
+      message: await localizeResponse(demoAnswer, language),
       sources: [],
     })
   }
 
   console.log("[chat] No demo match — returning unavailable response")
+  const unavailableMessage =
+    "I'm not able to pull up the full knowledge base right now, but I can still help with common questions! " +
+    "Try asking about **scholarships**, **how to apply for financial aid**, **FAFSA**, **tuition costs**, **deadlines**, **required documents**, or the **iWork program**. " +
+    "For anything else, the Financial Aid office is always ready to help at [financialaid.byuh.edu](https://financialaid.byuh.edu/)."
+
   return NextResponse.json({
     mode: "unavailable" as ResponseMode,
-    message:
-      "I'm not able to pull up the full knowledge base right now, but I can still help with common questions! " +
-      "Try asking about **scholarships**, **how to apply for financial aid**, **FAFSA**, **tuition costs**, **deadlines**, **required documents**, or the **iWork program**. " +
-      "For anything else, the Financial Aid office is always ready to help at [financialaid.byuh.edu](https://financialaid.byuh.edu/).",
+    message: await localizeResponse(unavailableMessage, language),
     sources: [],
   })
 }
@@ -464,6 +491,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json()
     const message = (body.message ?? "").trim()
+    const language = getSupportedLanguage(body.languageCode)
 
     if (!message) {
       return NextResponse.json({ error: "Message is required." }, { status: 400 })
@@ -474,7 +502,7 @@ export async function POST(req: Request) {
       console.log("[chat] Sensitive personal information detected — refusing")
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
-        message: SENSITIVE_INFO_RESPONSE,
+        message: await localizeResponse(SENSITIVE_INFO_RESPONSE, language),
         sources: [],
       })
     }
@@ -484,7 +512,7 @@ export async function POST(req: Request) {
       console.log("[chat] Conversational opener detected — responding with invitation")
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
-        message: CONVERSATIONAL_OPENER_RESPONSE,
+        message: await localizeResponse(CONVERSATIONAL_OPENER_RESPONSE, language),
         sources: [],
       })
     }
@@ -494,7 +522,7 @@ export async function POST(req: Request) {
       console.log("[chat] Frustration detected — responding with empathy")
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
-        message: FRUSTRATION_RESPONSE,
+        message: await localizeResponse(FRUSTRATION_RESPONSE, language),
         sources: [],
       })
     }
@@ -504,7 +532,7 @@ export async function POST(req: Request) {
       console.log("[chat] Out-of-scope question detected — refusing")
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
-        message: OUT_OF_SCOPE_RESPONSE,
+        message: await localizeResponse(OUT_OF_SCOPE_RESPONSE, language),
         sources: [],
       })
     }
@@ -515,7 +543,7 @@ export async function POST(req: Request) {
       result = await retrieveChunks(message)
     } catch (err) {
       console.error("[chat] Retrieval error:", err)
-      return buildFallbackResponse(message)
+      return buildFallbackResponse(message, language)
     }
 
     const { rows, confident } = result
@@ -523,7 +551,7 @@ export async function POST(req: Request) {
     // Step 3: Empty KB — no ingested data yet
     if (rows.length === 0) {
       console.log("[chat] Knowledge base is empty")
-      return buildFallbackResponse(message)
+      return buildFallbackResponse(message, language)
     }
 
     // Step 4: Retrieval confidence guard — chunks exist but are too dissimilar to
@@ -531,12 +559,14 @@ export async function POST(req: Request) {
     // hallucinating an answer from weakly-matched context.
     if (!confident) {
       console.log("[chat] Low retrieval confidence — returning safe fallback")
+      const lowConfidenceMessage =
+        "That's a great question, but I'm not finding a clear answer in my current information. " +
+        "For the most accurate help, I'd recommend reaching out to the **Financial Aid office** directly or visiting [financialaid.byuh.edu](https://financialaid.byuh.edu/) — they'll know for sure. " +
+        "In the meantime, feel free to ask me about **scholarships, FAFSA, tuition costs, deadlines, required documents, or the iWork program** and I'll do my best to help!"
+
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
-        message:
-          "That's a great question, but I'm not finding a clear answer in my current information. " +
-          "For the most accurate help, I'd recommend reaching out to the **Financial Aid office** directly or visiting [financialaid.byuh.edu](https://financialaid.byuh.edu/) — they'll know for sure. " +
-          "In the meantime, feel free to ask me about **scholarships, FAFSA, tuition costs, deadlines, required documents, or the iWork program** and I'll do my best to help!",
+        message: await localizeResponse(lowConfidenceMessage, language),
         sources: [],
       })
     }
@@ -546,7 +576,7 @@ export async function POST(req: Request) {
       .map((row, i) => `[Source ${i + 1}]\nTitle: ${row.title}\nURL: ${row.url}\n\n${row.content}`)
       .join("\n\n---\n\n")
 
-    const userMessage = `User question: ${message}\n\nContext from BYU–Hawaii Financial Aid website:\n${context}`
+    const userMessage = `${languageInstruction(language)}\n\nUser question: ${message}\n\nContext from BYU–Hawaii Financial Aid website:\n${context}`
 
     let answer: string
     try {
@@ -558,7 +588,7 @@ export async function POST(req: Request) {
       // OpenAI is unavailable — KB context was found but generation failed.
       // Fall back gracefully instead of surfacing a technical error.
       console.error("[chat] OpenAI generation error:", err)
-      return buildFallbackResponse(message)
+      return buildFallbackResponse(message, language)
     }
 
     const sources = Array.from(new Set(rows.map((r) => r.url)))

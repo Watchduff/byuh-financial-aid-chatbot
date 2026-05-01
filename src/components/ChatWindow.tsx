@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react"
 import type { UIMessage } from "@/lib/useChat"
+import type { UIText } from "@/lib/uiText"
 import MessageBubble from "./MessageBubble"
 import LoadingIndicator from "./LoadingIndicator"
 
@@ -13,6 +14,7 @@ type Props = {
   adminTyping: boolean
   onSpeakToHuman: () => void
   onFollowUp: (question: string) => void
+  uiText: UIText
 }
 
 function TypingDots() {
@@ -25,7 +27,7 @@ function TypingDots() {
   )
 }
 
-export default function ChatWindow({ messages, isLoading, error, supportRequestId, adminTyping, onSpeakToHuman, onFollowUp }: Props) {
+export default function ChatWindow({ messages, isLoading, error, supportRequestId, adminTyping, onSpeakToHuman, onFollowUp, uiText }: Props) {
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -42,7 +44,7 @@ export default function ChatWindow({ messages, isLoading, error, supportRequestI
     <div className="flex-1 space-y-3 overflow-y-auto pb-4 pt-2">
       {messages.length === 0 && !isLoading && (
         <div className="flex items-center justify-center py-12">
-          <p className="text-sm text-slate-400">Ask a question to get started.</p>
+          <p className="text-sm text-slate-400">{uiText.emptyChat}</p>
         </div>
       )}
 
@@ -55,6 +57,7 @@ export default function ChatWindow({ messages, isLoading, error, supportRequestI
             sources={msg.sources}
             agentName={msg.agentName}
             onFollowUp={onFollowUp}
+            uiText={uiText}
           />
           {/* Speak-to-human: support notice, not a user chat message */}
           {msg.role === "assistant" &&
@@ -68,7 +71,7 @@ export default function ChatWindow({ messages, isLoading, error, supportRequestI
                   onClick={onSpeakToHuman}
                   className="rounded-full border border-[#e5dede] bg-white px-4 py-2 text-sm font-semibold text-[#9E1B34] shadow-sm transition hover:bg-[#fff7f7] active:scale-[0.99]"
                 >
-                  Live Support
+                  {uiText.speakToHuman}
                 </button>
               </div>
             )}
@@ -86,7 +89,7 @@ export default function ChatWindow({ messages, isLoading, error, supportRequestI
           </div>
           <div className="rounded-2xl border border-[#eadfe0] bg-white px-4 py-3 text-xs text-slate-500 shadow-sm">
             <div className="flex items-center gap-2">
-              <span>Financial Aid Advisor is typing...</span>
+              <span>{uiText.advisorTyping}</span>
               <TypingDots />
             </div>
           </div>
@@ -95,7 +98,7 @@ export default function ChatWindow({ messages, isLoading, error, supportRequestI
 
       {error && (
         <div className="mx-auto max-w-xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <span className="font-semibold">Something went wrong.</span> Please try again or refresh the page.
+          <span className="font-semibold">{uiText.somethingWentWrong}</span> {uiText.tryAgain}
         </div>
       )}
 

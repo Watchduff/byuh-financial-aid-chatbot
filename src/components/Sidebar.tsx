@@ -1,3 +1,5 @@
+import type { UIText } from "@/lib/uiText"
+
 type ConversationSummary = {
   id: string
   title: string
@@ -11,6 +13,7 @@ type Props = {
   onNewChat: () => void
   onSelectConversation: (id: string) => void
   onDeleteConversation: (id: string) => void
+  uiText: UIText
 }
 
 export default function Sidebar({
@@ -21,6 +24,7 @@ export default function Sidebar({
   onNewChat,
   onSelectConversation,
   onDeleteConversation,
+  uiText,
 }: Props) {
   return (
     <>
@@ -45,13 +49,13 @@ export default function Sidebar({
               <span className="text-[8px] font-extrabold text-[#9E1B34]">BYU</span>
               <span className="text-[5px] font-bold uppercase tracking-wide text-[#9E1B34]">HAWAII</span>
             </div>
-            <span className="text-xs font-bold text-white/90">Financial Aid</span>
+            <span className="text-xs font-bold text-white/90">{uiText.financialAid}</span>
           </div>
           {/* Mobile close */}
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close sidebar"
+            aria-label={uiText.closeSidebar}
             className="rounded-lg p-1 text-white/50 transition hover:bg-white/10 hover:text-white md:hidden"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -70,7 +74,7 @@ export default function Sidebar({
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
               <path d="M8.75 3.75a.75.75 0 0 0-1.5 0v3.5h-3.5a.75.75 0 0 0 0 1.5h3.5v3.5a.75.75 0 0 0 1.5 0v-3.5h3.5a.75.75 0 0 0 0-1.5h-3.5v-3.5Z" />
             </svg>
-            New chat
+            {uiText.newChat}
           </button>
         </div>
 
@@ -78,7 +82,7 @@ export default function Sidebar({
         <div className="flex-1 overflow-y-auto px-2 pb-4">
           {conversations.length === 0 ? (
             <p className="px-3 pt-2 text-[11px] leading-relaxed text-white/40">
-              No conversations yet.
+              {uiText.noConversationsYet}
             </p>
           ) : (
             <ul className="space-y-0.5">

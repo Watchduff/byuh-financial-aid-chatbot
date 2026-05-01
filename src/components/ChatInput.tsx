@@ -1,4 +1,5 @@
 import { useRef } from "react"
+import type { UIText } from "@/lib/uiText"
 
 type Props = {
   value: string
@@ -7,9 +8,10 @@ type Props = {
   onStop: () => void
   isLoading: boolean
   showPrivacyReminder?: boolean
+  uiText: UIText
 }
 
-export default function ChatInput({ value, onChange, onSubmit, onStop, isLoading, showPrivacyReminder }: Props) {
+export default function ChatInput({ value, onChange, onSubmit, onStop, isLoading, showPrivacyReminder, uiText }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -43,7 +45,7 @@ export default function ChatInput({ value, onChange, onSubmit, onStop, isLoading
               value={value}
               onChange={(e) => onChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about BYU-Hawaii financial aid..."
+              placeholder={uiText.askPlaceholder}
               rows={1}
               className="min-h-11 max-h-40 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 text-sm text-slate-900 outline-none placeholder:text-slate-400"
             />
@@ -52,17 +54,17 @@ export default function ChatInput({ value, onChange, onSubmit, onStop, isLoading
               <button
                 type="button"
                 onClick={onStop}
-                aria-label="Stop generating"
+                aria-label={uiText.stopGenerating}
                 className="flex shrink-0 items-center gap-2 rounded-xl border border-[#BA0C2F]/40 bg-white px-4 py-2.5 text-sm font-semibold text-[#BA0C2F] transition hover:bg-red-50 active:scale-95"
               >
                 <span className="inline-block h-3 w-3 rounded-sm bg-[#BA0C2F]" />
-                Stop
+                {uiText.stop}
               </button>
             ) : (
               <button
                 type="submit"
                 disabled={!canSend}
-                aria-label="Send message"
+                aria-label={uiText.sendMessage}
                 className="flex shrink-0 items-center justify-center rounded-xl bg-[#BA0C2F] p-2.5 text-white transition hover:bg-[#a80b2a] active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
@@ -75,15 +77,15 @@ export default function ChatInput({ value, onChange, onSubmit, onStop, isLoading
 
         <p className="mt-1 px-1 text-[11px] text-slate-400">
           <kbd className="rounded border border-slate-300 px-1 py-0.5 font-mono text-[10px]">Enter</kbd>{" "}
-          to send &middot;{" "}
+          {uiText.enterToSend} &middot;{" "}
           <kbd className="rounded border border-slate-300 px-1 py-0.5 font-mono text-[10px]">
             Shift+Enter
           </kbd>{" "}
-          for a new line
+          {uiText.shiftEnterForNewLine}
         </p>
         {showPrivacyReminder && (
           <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
-            Please do not share Social Security numbers, passwords, bank details, or other sensitive personal information in this chat.
+            {uiText.privacyReminder}
           </p>
         )}
       </div>

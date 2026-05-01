@@ -7,6 +7,13 @@ import IntroScreen from "@/components/IntroScreen"
 import ChatWindow from "@/components/ChatWindow"
 import ChatInput from "@/components/ChatInput"
 import { FINANCIAL_AID_CONTACT, getSupportAvailability } from "@/lib/supportHours"
+import {
+  DEFAULT_LANGUAGE_CODE,
+  SUPPORTED_LANGUAGES,
+  detectSupportedLanguage,
+  getSupportedLanguage,
+} from "@/lib/languages"
+import { DEFAULT_UI_TEXT, type UIText } from "@/lib/uiText"
 
 const HANDOFF_NOTICE =
   "Thanks — your request has been sent to the BYU–Hawaii Financial Aid team. An advisor will join when available. Please stay on this chat while you wait."
@@ -41,6 +48,8 @@ export default function Page() {
   const [seenAgentMessageIds, setSeenAgentMessageIds] = useState<Set<string>>(new Set())
   const [completedSupportRequestIds, setCompletedSupportRequestIds] = useState<Set<string>>(new Set())
   const [adminTyping, setAdminTyping] = useState(false)
+  const [languageCode, setLanguageCode] = useState(DEFAULT_LANGUAGE_CODE)
+  const [uiText, setUiText] = useState<UIText>(DEFAULT_UI_TEXT)
 
   const activeConvIdRef = useRef<string | null>(null)
   const messagesRef = useRef<UIMessage[]>([])
@@ -51,16 +60,68 @@ export default function Page() {
 
   const { messages, sendMessage, setMessages, status, stop, error } = useChat({
     api: "/api/chat",
+    languageCode,
   })
 
   const isLoading = status === "streaming" || status === "submitted"
   const supportAvailability = getSupportAvailability()
+  const selectedLanguage = getSupportedLanguage(languageCode)
   const liveSupportStatusLabel =
     supportRequestId && seenAgentMessageIds.size > 0 ? "Connected" : "Waiting for advisor"
 
   useEffect(() => { activeConvIdRef.current = activeConversationId })
   useEffect(() => { messagesRef.current = messages })
   useEffect(() => { seenAgentMessageIdsRef.current = seenAgentMessageIds }, [seenAgentMessageIds])
+
+  useEffect(() => {
+    const savedLanguageCode = window.localStorage.getItem("byuh-chat-language")
+    if (savedLanguageCode) {
+      setLanguageCode(getSupportedLanguage(savedLanguageCode).code)
+      return
+    }
+
+    setLanguageCode(detectSupportedLanguage(navigator.languages).code)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const cacheKey = `byuh-chat-ui-text-${languageCode}`
+
+    if (languageCode === DEFAULT_LANGUAGE_CODE) {
+      setUiText(DEFAULT_UI_TEXT)
+      return
+    }
+
+    const cached = window.localStorage.getItem(cacheKey)
+    if (cached) {
+      try {
+        setUiText({ ...DEFAULT_UI_TEXT, ...JSON.parse(cached) })
+      } catch {
+        window.localStorage.removeItem(cacheKey)
+      }
+    } else {
+      setUiText(DEFAULT_UI_TEXT)
+    }
+
+    async function loadUiText() {
+      try {
+        const res = await fetch(`/api/ui-text?languageCode=${encodeURIComponent(languageCode)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        const nextUiText = { ...DEFAULT_UI_TEXT, ...(data.uiText ?? {}) }
+        if (cancelled) return
+        setUiText(nextUiText)
+        window.localStorage.setItem(cacheKey, JSON.stringify(nextUiText))
+      } catch {
+        // Keep English UI labels if translation is unavailable.
+      }
+    }
+
+    void loadUiText()
+    return () => {
+      cancelled = true
+    }
+  }, [languageCode])
 
   useEffect(() => {
     if (!supportRequestId) {
@@ -198,6 +259,12 @@ export default function Page() {
         isTyping,
       }),
     }).catch(() => undefined)
+  }
+
+  function handleLanguageChange(nextLanguageCode: string) {
+    const language = getSupportedLanguage(nextLanguageCode)
+    setLanguageCode(language.code)
+    window.localStorage.setItem("byuh-chat-language", language.code)
   }
 
   function handleInputChange(value: string) {
@@ -447,6 +514,7 @@ export default function Page() {
           onNewChat={handleNewChat}
           onSelectConversation={handleSelectConversation}
           onDeleteConversation={handleDeleteConversation}
+          uiText={uiText}
         />
 
         {/* ── Main content column ── */}
@@ -480,9 +548,28 @@ export default function Page() {
                 <h2 className="truncate text-base font-bold leading-tight md:text-lg">
                   {viewMode === "chat" && activeConversation
                     ? activeConversation.title
-                    : "Financial Aid Assistant"}
+                    : uiText.financialAidAssistant}
                 </h2>
               </div>
+
+              <label className="flex shrink-0 items-center gap-1.5 rounded-xl border border-white/25 bg-white/10 px-2.5 py-2 text-xs font-semibold text-white transition focus-within:bg-white/20">
+                <span className="sr-only">{uiText.responseLanguage}</span>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-2.05c.884-.903 1.575-2.258 1.88-3.95H7.37c.305 1.692.996 3.047 1.88 3.95a6.655 6.655 0 0 0 1.5 0ZM7.1 10.5a15.62 15.62 0 0 1 0-1h5.8a15.62 15.62 0 0 1 0 1H7.1Zm.27-2.5h5.26c-.305-1.692-.996-3.047-1.88-3.95a6.655 6.655 0 0 0-1.5 0C8.366 4.953 7.675 6.308 7.37 8Zm6.78 0h1.573a6.52 6.52 0 0 0-2.537-3.03c.43.82.758 1.848.964 3.03Zm1.852 1.5h-1.596a17.265 17.265 0 0 1 0 1h1.596a6.784 6.784 0 0 0 0-1Zm-.279 2.5H14.15c-.206 1.182-.534 2.21-.964 3.03A6.52 6.52 0 0 0 15.723 12ZM6.814 15.03c-.43-.82-.758-1.848-.964-3.03H4.277a6.52 6.52 0 0 0 2.537 3.03ZM3.998 10.5h1.596a17.265 17.265 0 0 1 0-1H3.998a6.783 6.783 0 0 0 0 1ZM4.277 8H5.85c.206-1.182.534-2.21.964-3.03A6.52 6.52 0 0 0 4.277 8Z" clipRule="evenodd" />
+                </svg>
+                <select
+                  value={selectedLanguage.code}
+                  onChange={(event) => handleLanguageChange(event.target.value)}
+                  className="w-16 border-0 bg-transparent text-xs font-semibold text-white outline-none [color-scheme:dark] sm:w-32"
+                  title={uiText.responseLanguage}
+                >
+                  {SUPPORTED_LANGUAGES.map((language) => (
+                    <option key={language.code} value={language.code} className="bg-white text-slate-900">
+                      {language.nativeName}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               {/* Live Support button */}
               {!supportRequestId ? (
@@ -495,12 +582,16 @@ export default function Page() {
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
                     <path d="M10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM1.49 15.326a.78.78 0 0 1-.358-.442 3 3 0 0 1 4.308-3.516 6.484 6.484 0 0 0-1.905 3.959c-.023.222-.014.442.025.654a4.97 4.97 0 0 1-2.07-.655ZM16.44 15.98a4.97 4.97 0 0 0 2.07-.654.78.78 0 0 0 .357-.442 3 3 0 0 0-4.308-3.517 6.484 6.484 0 0 1 1.907 3.96 2.32 2.32 0 0 1-.026.654ZM18 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM5.304 16.19a.844.844 0 0 1-.277-.71 5 5 0 0 1 9.947 0 .843.843 0 0 1-.277.71A6.975 6.975 0 0 1 10 18a6.974 6.974 0 0 1-4.696-1.81Z" />
                   </svg>
-                  <span className="hidden sm:inline">{supportAvailability.label}</span>
+                  <span className="hidden sm:inline">
+                    {supportAvailability.label === "Live Support Closed" ? uiText.liveSupportClosed : uiText.liveSupport}
+                  </span>
                 </button>
               ) : (
                 <div className="flex shrink-0 items-center gap-1.5 rounded-xl bg-white/10 px-3 py-2 text-xs font-medium text-white/70">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
-                  <span className="hidden sm:inline">{liveSupportStatusLabel}</span>
+                  <span className="hidden sm:inline">
+                    {liveSupportStatusLabel === "Connected" ? uiText.connected : uiText.waitingForAdvisor}
+                  </span>
                 </div>
               )}
 
@@ -514,6 +605,7 @@ export default function Page() {
               onLiveSupport={handleLiveSupportFromIntro}
               liveSupportLabel={supportAvailability.label}
               liveSupportNote={supportAvailability.note}
+              uiText={uiText}
             />
           )}
 
@@ -530,6 +622,7 @@ export default function Page() {
                     adminTyping={adminTyping}
                     onSpeakToHuman={() => handleSpeakToHuman()}
                     onFollowUp={(question) => void sendQuestion(question)}
+                    uiText={uiText}
                   />
                 </div>
               </div>
@@ -541,6 +634,7 @@ export default function Page() {
                 onStop={stop}
                 isLoading={isLoading}
                 showPrivacyReminder={Boolean(supportRequestId)}
+                uiText={uiText}
               />
             </>
           )}

@@ -11,6 +11,7 @@ export type UIMessage = {
 
 type UseChatOptions = {
   api?: string
+  languageCode?: string
 }
 
 export function useChat(options?: UseChatOptions) {
@@ -36,6 +37,7 @@ export function useChat(options?: UseChatOptions) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: message.text,
+            languageCode: options?.languageCode,
           }),
         })
 

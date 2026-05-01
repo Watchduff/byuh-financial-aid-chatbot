@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import type { UIText } from "@/lib/uiText"
 
 type Props = {
   role: "user" | "assistant" | "agent"
@@ -11,15 +12,8 @@ type Props = {
   sources?: string[]
   agentName?: string
   onFollowUp?: (question: string) => void
+  uiText: UIText
 }
-
-const FOLLOW_UPS = [
-  "What documents do I need?",
-  "What is the deadline?",
-  "Who can I contact?",
-  "How do I apply?",
-  "What scholarships are available?",
-]
 
 function BYUAvatar() {
   return (
@@ -29,14 +23,14 @@ function BYUAvatar() {
   )
 }
 
-function SourcePills({ sources }: { sources: string[] }) {
+function SourcePills({ sources, uiText }: { sources: string[]; uiText: UIText }) {
   const unique = Array.from(new Set(sources)).slice(0, 5)
   if (unique.length === 0) return null
 
   return (
     <div className="mt-3 border-t border-slate-100 pt-3">
       <p className="mb-1.5 text-[9px] font-bold uppercase tracking-widest text-slate-400">
-        Sources
+        {uiText.sources}
       </p>
       <div className="grid gap-1.5 sm:grid-cols-2">
         {unique.map((url) => {
@@ -68,7 +62,7 @@ function SourcePills({ sources }: { sources: string[] }) {
   )
 }
 
-function GroundingLabel({ mode, hasSources }: { mode?: Props["mode"]; hasSources: boolean }) {
+function GroundingLabel({ mode, hasSources, uiText }: { mode?: Props["mode"]; hasSources: boolean; uiText: UIText }) {
   if (mode === "handoff") return null
 
   const grounded = mode === "grounded" || hasSources
@@ -82,19 +76,22 @@ function GroundingLabel({ mode, hasSources }: { mode?: Props["mode"]; hasSources
         }`}
       >
         {grounded
-          ? "Answered from BYU-Hawaii Financial Aid sources"
-          : "Needs official confirmation"}
+          ? uiText.answeredFromSources
+          : uiText.needsOfficialConfirmation}
       </span>
     </div>
   )
 }
 
-export default function MessageBubble({ role, content, mode, sources, agentName, onFollowUp }: Props) {
+export default function MessageBubble({ role, content, mode, sources, agentName, onFollowUp, uiText }: Props) {
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<"helpful" | "not-helpful" | null>(null)
   const isUser = role === "user"
   const isAgent = role === "agent"
-  const followUps = useMemo(() => FOLLOW_UPS.slice(0, 3), [])
+  const followUps = useMemo(
+    () => [uiText.followUpDocuments, uiText.followUpDeadline, uiText.followUpContact],
+    [uiText]
+  )
   const hasSources = Boolean(sources && sources.length > 0)
 
   async function handleCopy() {
@@ -109,7 +106,7 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
         <BYUAvatar />
         <div className="max-w-[92%] rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3.5 text-sm leading-7 text-amber-950 shadow-sm md:max-w-[85%]">
           <p className="mb-1 text-xs font-bold uppercase tracking-widest text-amber-700">
-            Live support
+            {uiText.liveSupportNotice}
           </p>
           <span className="whitespace-pre-wrap">{content}</span>
         </div>
@@ -134,8 +131,9 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
         <div className="max-w-[92%] rounded-3xl border border-[#eadfe0] bg-white px-5 py-3.5 text-sm leading-7 text-slate-800 shadow-sm md:max-w-[85%]">
           {agentName && (
             <p className="mb-2 text-sm text-slate-500">
-              BYU–Hawaii Financial Aid advisor{" "}
-              <span className="font-semibold text-slate-700">[{agentName}]</span> replied.
+              {uiText.advisorReplied.split("{agentName}")[0]}
+              <span className="font-semibold text-slate-700">{agentName}</span>
+              {uiText.advisorReplied.split("{agentName}")[1]}
             </p>
           )}
           <span className="whitespace-pre-wrap">{content}</span>
@@ -149,7 +147,7 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
     <div className="flex items-start gap-2.5">
       <BYUAvatar />
       <div className="max-w-[92%] rounded-3xl border border-[#eadfe0] bg-white px-5 py-3.5 text-sm leading-7 text-slate-800 shadow-sm md:max-w-[85%]">
-        <GroundingLabel mode={mode} hasSources={hasSources} />
+        <GroundingLabel mode={mode} hasSources={hasSources} uiText={uiText} />
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -199,7 +197,7 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
         >
           {content}
         </ReactMarkdown>
-        {sources && sources.length > 0 && <SourcePills sources={sources} />}
+        {sources && sources.length > 0 && <SourcePills sources={sources} uiText={uiText} />}
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
           <button
             type="button"
@@ -210,7 +208,7 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
                 : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
             }`}
           >
-            Helpful
+            {uiText.helpful}
           </button>
           <button
             type="button"
@@ -221,14 +219,14 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
                 : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
             }`}
           >
-            Not helpful
+            {uiText.notHelpful}
           </button>
           <button
             type="button"
             onClick={handleCopy}
             className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-500 transition hover:bg-slate-50"
           >
-            {copied ? "Copied" : "Copy"}
+            {copied ? uiText.copied : uiText.copy}
           </button>
         </div>
         {onFollowUp && (
