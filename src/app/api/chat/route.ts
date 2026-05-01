@@ -41,9 +41,11 @@ RULES — follow every one without exception:
 
 7. WEAK CONTEXT: If the context does not clearly answer the question, be positive and helpful: "I don't have that specific detail in my current information — for the most accurate answer, reach out to the Financial Aid office directly or visit financialaid.byuh.edu. Is there something else about financial aid I can help with?"
 
-8. TONE: Warm, positive, and conversational. Be encouraging and supportive — students are often stressed about finances. Be direct and confident, but never cold or robotic. Use natural language, not bureaucratic phrasing.
+8. TONE: Warm, positive, and conversational. Be encouraging and supportive — users are often stressed about finances. Be direct and confident, but never cold or robotic. Use natural language, not bureaucratic phrasing.
 
-9. SOURCES: End grounded answers with the source URL when it is available in the context.`
+9. PRIVACY: Do not ask users to share private personal information in chat, including Social Security numbers, passwords, FAFSA login information, full student ID numbers, passport numbers, bank details, full tax return details, medical information, immigration documents, or private family financial details. For account-specific records or documents, direct users to official BYU–Hawaii Financial Aid channels.
+
+10. SOURCES: End grounded answers with the source URL when it is available in the context.`
 
 // ---------------------------------------------------------------------------
 // Conversational opener guard
@@ -105,6 +107,29 @@ const FRUSTRATION_RESPONSE =
 
 function isFrustration(message: string): boolean {
   return FRUSTRATION_PATTERNS.some((pattern) => pattern.test(message))
+}
+
+// ---------------------------------------------------------------------------
+// Sensitive personal information guard
+// ---------------------------------------------------------------------------
+const SENSITIVE_INFO_PATTERNS: RegExp[] = [
+  /\b(social\s+security|ssn|social\s+security\s+number)\b/i,
+  /\b(full\s+)?date\s+of\s+birth\b|\bdob\b/i,
+  /\bpassport\s+(number|no\.?|#)?\b/i,
+  /\b(bank\s+account|routing\s+number|account\s+number|credit\s+card|debit\s+card)\b/i,
+  /\b(fafsa|fsa)\s+(login|username|password|id)\b/i,
+  /\b(password|passcode|login\s+credentials)\b/i,
+  /\b(full\s+)?student\s+id\s+(number|#)?\b|\bbyuh\s+id\s+(number|#)?\b/i,
+  /\b(medical\s+record|medical\s+information|diagnosis|health\s+record)\b/i,
+  /\b(immigration\s+document|visa\s+document|green\s+card|alien\s+registration)\b/i,
+  /\b(my|our)\s+(tax\s+return|w-?2|1099|bank\s+statement|family\s+income|parents?'?\s+income)\b/i,
+]
+
+const SENSITIVE_INFO_RESPONSE =
+  "Please don’t share private personal information in this chat. For help with your specific financial aid record or documents, contact the BYU–Hawaii Financial Aid Office directly at financialaid@byuh.edu or (808) 675-3316."
+
+function containsSensitiveInfo(message: string): boolean {
+  return SENSITIVE_INFO_PATTERNS.some((pattern) => pattern.test(message))
 }
 
 // ---------------------------------------------------------------------------
@@ -442,6 +467,16 @@ export async function POST(req: Request) {
 
     if (!message) {
       return NextResponse.json({ error: "Message is required." }, { status: 400 })
+    }
+
+    // Step 1: Do not process sensitive personal information in public chat.
+    if (containsSensitiveInfo(message)) {
+      console.log("[chat] Sensitive personal information detected — refusing")
+      return NextResponse.json({
+        mode: "grounded" as ResponseMode,
+        message: SENSITIVE_INFO_RESPONSE,
+        sources: [],
+      })
     }
 
     // Step 1a: Respond warmly to conversational openers (greetings, "i have a question", etc.)

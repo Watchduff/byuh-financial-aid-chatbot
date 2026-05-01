@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
         return {
           ...request,
           latestQuestion: request.userMessage,
-          chatbotNote: "student asked to speak to a human",
+          chatbotNote: "User asked to speak to a human",
           chatHistory: history,
           adminMessages: replies,
         }

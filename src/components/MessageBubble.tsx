@@ -134,7 +134,7 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
         <div className="max-w-[92%] rounded-3xl border border-[#eadfe0] bg-white px-5 py-3.5 text-sm leading-7 text-slate-800 shadow-sm md:max-w-[85%]">
           {agentName && (
             <p className="mb-2 text-sm text-slate-500">
-              A BYU–Hawaii financial aid advisor{" "}
+              BYU–Hawaii Financial Aid advisor{" "}
               <span className="font-semibold text-slate-700">[{agentName}]</span> replied.
             </p>
           )}

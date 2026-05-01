@@ -6,13 +6,16 @@ import Sidebar from "@/components/Sidebar"
 import IntroScreen from "@/components/IntroScreen"
 import ChatWindow from "@/components/ChatWindow"
 import ChatInput from "@/components/ChatInput"
+import { FINANCIAL_AID_CONTACT, getSupportAvailability } from "@/lib/supportHours"
 
 const HANDOFF_NOTICE =
-  "Your request has been sent to the BYU–Hawaii Financial Aid team. An advisor can review your conversation and reply when available."
+  "Thanks — your request has been sent to the BYU–Hawaii Financial Aid team. An advisor will join when available. Please stay on this chat while you wait."
 const SUPPORT_COMPLETE_NOTICE =
   "This live support conversation has been marked complete. You can continue asking financial aid questions or start a new support request if needed."
 const SUPPORT_CLOSED_NOTICE =
   "This live support request was closed. You can start a new live support request if you still need help."
+const OUTSIDE_HOURS_NOTICE =
+  `Live support is currently outside Financial Aid office hours. The chatbot is still available for general BYU–Hawaii Financial Aid questions. For account-specific help, contact ${FINANCIAL_AID_CONTACT.email} or ${FINANCIAL_AID_CONTACT.office} during office hours.`
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,6 +53,9 @@ export default function Page() {
   })
 
   const isLoading = status === "streaming" || status === "submitted"
+  const supportAvailability = getSupportAvailability()
+  const liveSupportStatusLabel =
+    supportRequestId && seenAgentMessageIds.size > 0 ? "Connected" : "Waiting for advisor"
 
   useEffect(() => { activeConvIdRef.current = activeConversationId })
   useEffect(() => { messagesRef.current = messages })
@@ -344,6 +350,18 @@ export default function Page() {
 
     if (supportRequestId) return
 
+    if (!supportAvailability.isAvailable) {
+      const closedMsg: UIMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        mode: "handoff",
+        content: OUTSIDE_HOURS_NOTICE,
+        sources: [],
+      }
+      setMessages((prev) => [...prev, closedMsg])
+      return
+    }
+
     let conversationId = forConversationId ?? activeConvIdRef.current
 
     if (!conversationId) {
@@ -460,18 +478,18 @@ export default function Page() {
                 <button
                   type="button"
                   onClick={() => handleSpeakToHuman()}
-                  title="Chat with a live financial aid advisor"
+                  title={supportAvailability.note}
                   className="flex shrink-0 items-center gap-1.5 rounded-xl border border-white/25 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-[0.97]"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
                     <path d="M10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM1.49 15.326a.78.78 0 0 1-.358-.442 3 3 0 0 1 4.308-3.516 6.484 6.484 0 0 0-1.905 3.959c-.023.222-.014.442.025.654a4.97 4.97 0 0 1-2.07-.655ZM16.44 15.98a4.97 4.97 0 0 0 2.07-.654.78.78 0 0 0 .357-.442 3 3 0 0 0-4.308-3.517 6.484 6.484 0 0 1 1.907 3.96 2.32 2.32 0 0 1-.026.654ZM18 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM5.304 16.19a.844.844 0 0 1-.277-.71 5 5 0 0 1 9.947 0 .843.843 0 0 1-.277.71A6.975 6.975 0 0 1 10 18a6.974 6.974 0 0 1-4.696-1.81Z" />
                   </svg>
-                  <span className="hidden sm:inline">Live Support</span>
+                  <span className="hidden sm:inline">{supportAvailability.label}</span>
                 </button>
               ) : (
                 <div className="flex shrink-0 items-center gap-1.5 rounded-xl bg-white/10 px-3 py-2 text-xs font-medium text-white/70">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
-                  <span className="hidden sm:inline">Connected</span>
+                  <span className="hidden sm:inline">{liveSupportStatusLabel}</span>
                 </div>
               )}
 
@@ -480,7 +498,12 @@ export default function Page() {
 
           {/* ── Intro screen ── */}
           {viewMode === "intro" && (
-            <IntroScreen onStart={handleStartFromIntro} onLiveSupport={handleLiveSupportFromIntro} />
+            <IntroScreen
+              onStart={handleStartFromIntro}
+              onLiveSupport={handleLiveSupportFromIntro}
+              liveSupportLabel={supportAvailability.label}
+              liveSupportNote={supportAvailability.note}
+            />
           )}
 
           {/* ── Active conversation ── */}
@@ -506,6 +529,7 @@ export default function Page() {
                 onSubmit={handleChatSend}
                 onStop={stop}
                 isLoading={isLoading}
+                showPrivacyReminder={Boolean(supportRequestId)}
               />
             </>
           )}

@@ -179,10 +179,10 @@ export default function AdminDetailPage() {
       </header>
 
       <div className="mx-auto flex w-full max-w-5xl flex-1 gap-5 px-6 py-6">
-        {/* Sidebar: student info + status controls */}
+        {/* Sidebar: user info + status controls */}
         <aside className="w-64 shrink-0 space-y-4">
           <div className="rounded-2xl border border-[#e5dede] bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">Student Info</h2>
+            <h2 className="mb-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">User Info</h2>
             <div className="space-y-3 text-sm">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Requested</p>
@@ -289,7 +289,7 @@ export default function AdminDetailPage() {
               <form onSubmit={handleSendReply} className="space-y-3">
                 <div>
                   <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Your name (shown to student)
+                    Your name (shown to user)
                   </label>
                   <input
                     type="text"
@@ -302,7 +302,7 @@ export default function AdminDetailPage() {
                 </div>
                 <div>
                   <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Reply to student
+                    Reply to user
                   </label>
                   <textarea
                     value={reply}
@@ -314,7 +314,7 @@ export default function AdminDetailPage() {
                   />
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-xs text-slate-400">Delivered to the student in real time.</p>
+                  <p className="text-xs text-slate-400">Delivered to the user in real time.</p>
                   <button
                     type="submit"
                     disabled={sending || !reply.trim() || !agentName.trim()}

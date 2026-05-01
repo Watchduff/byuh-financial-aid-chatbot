@@ -6,9 +6,10 @@ type Props = {
   onSubmit: () => void
   onStop: () => void
   isLoading: boolean
+  showPrivacyReminder?: boolean
 }
 
-export default function ChatInput({ value, onChange, onSubmit, onStop, isLoading }: Props) {
+export default function ChatInput({ value, onChange, onSubmit, onStop, isLoading, showPrivacyReminder }: Props) {
   const formRef = useRef<HTMLFormElement>(null)
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -80,6 +81,11 @@ export default function ChatInput({ value, onChange, onSubmit, onStop, isLoading
           </kbd>{" "}
           for a new line
         </p>
+        {showPrivacyReminder && (
+          <p className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
+            Please do not share Social Security numbers, passwords, bank details, or other sensitive personal information in this chat.
+          </p>
+        )}
       </div>
     </div>
   )

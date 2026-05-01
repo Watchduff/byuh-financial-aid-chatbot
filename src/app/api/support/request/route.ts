@@ -14,12 +14,12 @@ type IncomingMessage = {
   content?: string
 }
 
-function latestStudentQuestion(messages: IncomingMessage[]) {
+function latestUserQuestion(messages: IncomingMessage[]) {
   const latest = [...messages]
     .reverse()
     .find((message) => message.role === "user" && message.content?.trim())
 
-  return latest?.content?.trim() || "Student asked to speak to a human"
+  return latest?.content?.trim() || "User asked to speak to a human"
 }
 
 export async function POST(req: NextRequest) {
@@ -32,9 +32,9 @@ export async function POST(req: NextRequest) {
     const conversationId = (body.conversationId as string | undefined)?.trim() || crypto.randomUUID()
     const title =
       (body.title as string | undefined)?.trim() ||
-      latestStudentQuestion(messages).slice(0, 80) ||
+      latestUserQuestion(messages).slice(0, 80) ||
       "Live Support Request"
-    const latestQuestion = latestStudentQuestion(messages)
+    const latestQuestion = latestUserQuestion(messages)
 
     const [existingConversation] = await db
       .select()

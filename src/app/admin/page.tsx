@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { SUPPORT_HOURS_NOTE } from "@/lib/supportHours"
 
 type ChatMessage = {
   id: number
@@ -284,7 +285,7 @@ export default function AdminConsolePage() {
               BYU-Hawaii Financial Aid Officials Console
             </h1>
             <p className="mt-1 text-sm text-white/75">
-              Respond to student questions forwarded from the chatbot
+              Respond to user questions forwarded from the chatbot
             </p>
           </div>
         </div>
@@ -292,10 +293,16 @@ export default function AdminConsolePage() {
 
       <section className="mx-auto max-w-6xl px-5 py-6">
         <div className="mb-5 rounded-lg border border-[#e5dede] bg-white p-4 shadow-sm">
+          <p className="mb-3 rounded-lg bg-[#fdf8f8] px-3 py-2 text-xs font-medium text-slate-600">
+            {SUPPORT_HOURS_NOTE}
+          </p>
+          <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+            Do not request or store sensitive personal information in live chat. For account-specific financial aid records, direct users to official BYU–Hawaii Financial Aid channels.
+          </p>
           <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
             <label className="block">
               <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
-                Admin name shown to student
+                Admin name shown to user
               </span>
               <input
                 value={adminName}
@@ -354,7 +361,7 @@ export default function AdminConsolePage() {
               const timeline = [
                 ...request.chatHistory.map((message) => ({
                   id: `chat-${message.id}`,
-                  role: message.role === "user" ? "STUDENT" : "ASSISTANT",
+                  role: message.role === "user" ? "USER" : "ASSISTANT",
                   content: message.content,
                   createdAt: message.createdAt,
                 })),
@@ -409,7 +416,7 @@ export default function AdminConsolePage() {
                             <div
                               key={message.id}
                               className={`rounded-lg border px-4 py-3 ${
-                                message.role === "STUDENT"
+                                message.role === "USER"
                                   ? "border-[#f3ccd4] bg-[#fff7f7]"
                                   : message.role === "ADMIN"
                                     ? "border-blue-200 bg-blue-50"
@@ -435,11 +442,11 @@ export default function AdminConsolePage() {
                       <div className="mt-5 rounded-lg border border-[#e5dede] bg-[#fdf8f8] p-4">
                         {label === "Pending" && typingStatuses[request.id] && (
                           <div className="mb-3">
-                            <InlineTypingIndicator label="Student is typing..." />
+                            <InlineTypingIndicator label="User is typing..." />
                           </div>
                         )}
                         <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
-                          Reply to student
+                          Reply to user
                         </label>
                         <textarea
                           value={replies[request.id] ?? ""}
