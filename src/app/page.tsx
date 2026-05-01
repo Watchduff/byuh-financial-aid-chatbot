@@ -13,7 +13,9 @@ import {
   detectSupportedLanguage,
   getSupportedLanguage,
 } from "@/lib/languages"
-import { DEFAULT_UI_TEXT, type UIText } from "@/lib/uiText"
+import { DEFAULT_UI_TEXT, getStaticUIText, type UIText } from "@/lib/uiText"
+
+const UI_TEXT_CACHE_VERSION = "v4"
 
 const HANDOFF_NOTICE =
   "Thanks — your request has been sent to the BYU–Hawaii Financial Aid team. An advisor will join when available. Please stay on this chat while you wait."
@@ -32,6 +34,63 @@ type Conversation = {
   id: string
   title: string
   savedMessages: UIMessage[]
+}
+
+type SupportRequestOptions = {
+  forConversationId?: string
+  messagesOverride?: UIMessage[]
+  escalationReason?: string
+  escalationPriority?: "normal" | "high"
+  sentimentLabel?: string
+  automatic?: boolean
+}
+
+function getUiTextCacheKey(languageCode: string) {
+  return `byuh-chat-ui-text-${UI_TEXT_CACHE_VERSION}-${languageCode}`
+}
+
+function readCachedUiText(languageCode: string): UIText | null {
+  if (typeof window === "undefined") return null
+
+  const cached = window.localStorage.getItem(getUiTextCacheKey(languageCode))
+  if (!cached) return null
+
+  try {
+    return { ...DEFAULT_UI_TEXT, ...JSON.parse(cached) }
+  } catch {
+    window.localStorage.removeItem(getUiTextCacheKey(languageCode))
+    return null
+  }
+}
+
+async function fetchUiText(languageCode: string): Promise<UIText | null> {
+  if (languageCode === DEFAULT_LANGUAGE_CODE) return DEFAULT_UI_TEXT
+
+  const staticUiText = getStaticUIText(languageCode)
+  if (staticUiText) {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(getUiTextCacheKey(languageCode), JSON.stringify(staticUiText))
+    }
+    return staticUiText
+  }
+
+  try {
+    const res = await fetch(`/api/ui-text?languageCode=${encodeURIComponent(languageCode)}`, {
+      cache: "no-store",
+    })
+    if (!res.ok) return null
+
+    const data = await res.json()
+    if (!data.translated) return null
+
+    const nextUiText = { ...DEFAULT_UI_TEXT, ...(data.uiText ?? {}) }
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(getUiTextCacheKey(languageCode), JSON.stringify(nextUiText))
+    }
+    return nextUiText
+  } catch {
+    return null
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -85,35 +144,32 @@ export default function Page() {
 
   useEffect(() => {
     let cancelled = false
-    const cacheKey = `byuh-chat-ui-text-${languageCode}`
+    const cacheKey = getUiTextCacheKey(languageCode)
 
     if (languageCode === DEFAULT_LANGUAGE_CODE) {
       setUiText(DEFAULT_UI_TEXT)
       return
     }
 
-    const cached = window.localStorage.getItem(cacheKey)
-    if (cached) {
-      try {
-        setUiText({ ...DEFAULT_UI_TEXT, ...JSON.parse(cached) })
-      } catch {
-        window.localStorage.removeItem(cacheKey)
-      }
-    } else {
-      setUiText(DEFAULT_UI_TEXT)
+    const staticUiText = getStaticUIText(languageCode)
+    if (staticUiText) {
+      setUiText(staticUiText)
+      window.localStorage.setItem(cacheKey, JSON.stringify(staticUiText))
+      return
     }
 
+    const cachedUiText = readCachedUiText(languageCode)
+    if (cachedUiText) {
+      setUiText(cachedUiText)
+      return
+    }
+
+    setUiText(DEFAULT_UI_TEXT)
+
     async function loadUiText() {
-      try {
-        const res = await fetch(`/api/ui-text?languageCode=${encodeURIComponent(languageCode)}`)
-        if (!res.ok) return
-        const data = await res.json()
-        const nextUiText = { ...DEFAULT_UI_TEXT, ...(data.uiText ?? {}) }
-        if (cancelled) return
+      const nextUiText = await fetchUiText(languageCode)
+      if (!cancelled && nextUiText) {
         setUiText(nextUiText)
-        window.localStorage.setItem(cacheKey, JSON.stringify(nextUiText))
-      } catch {
-        // Keep English UI labels if translation is unavailable.
       }
     }
 
@@ -173,9 +229,9 @@ export default function Page() {
 
         const terminalNotice =
           requestStatus === "answered"
-            ? SUPPORT_COMPLETE_NOTICE
+            ? uiText.supportCompleteNotice || SUPPORT_COMPLETE_NOTICE
             : requestStatus === "deleted"
-              ? SUPPORT_CLOSED_NOTICE
+              ? uiText.supportClosedNotice || SUPPORT_CLOSED_NOTICE
               : null
 
         if (terminalNotice && !completedSupportRequestIds.has(activeSupportRequestId)) {
@@ -213,7 +269,7 @@ export default function Page() {
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
     }
-  }, [completedSupportRequestIds, supportRequestId, setMessages])
+  }, [completedSupportRequestIds, supportRequestId, setMessages, uiText.supportClosedNotice, uiText.supportCompleteNotice])
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -302,10 +358,12 @@ export default function Page() {
     await ensureServerConversation(id, title)
     const result = await sendMessage({ text: question })
     if (result) {
-      await saveChatMessages(id, [
+      const savedMessages = [
         result.userMessage,
         ...(result.assistantMessage ? [result.assistantMessage] : []),
-      ])
+      ]
+      await saveChatMessages(id, savedMessages)
+      await maybeAutoEscalate(id, savedMessages, result.assistantMessage)
     }
   }
 
@@ -364,11 +422,30 @@ export default function Page() {
     const result = await sendMessage({ text: trimmed })
 
     if (result) {
-      await saveChatMessages(conversationId, [
+      const savedMessages = [
         result.userMessage,
         ...(result.assistantMessage ? [result.assistantMessage] : []),
-      ])
+      ]
+      await saveChatMessages(conversationId, savedMessages)
+      await maybeAutoEscalate(conversationId, [...messagesRef.current, ...savedMessages], result.assistantMessage)
     }
+  }
+
+  async function maybeAutoEscalate(
+    conversationId: string,
+    messagesForSupport: UIMessage[],
+    assistantMessage: UIMessage | null
+  ) {
+    if (!assistantMessage?.escalation?.shouldEscalate || supportRequestId) return
+
+    await handleSpeakToHuman({
+      forConversationId: conversationId,
+      messagesOverride: messagesForSupport,
+      escalationReason: assistantMessage.escalation.reason,
+      escalationPriority: assistantMessage.escalation.priority,
+      sentimentLabel: assistantMessage.sentiment?.label,
+      automatic: true,
+    })
   }
   function handleNewChat() {
     saveCurrentMessages()
@@ -420,11 +497,11 @@ export default function Page() {
     setConversations((prev) => [{ id, title: "Live Support Request", savedMessages: [] }, ...prev])
     setActiveConversationId(id)
     setViewMode("chat")
-    await handleSpeakToHuman(id)
+    await handleSpeakToHuman({ forConversationId: id })
   }
 
-  async function handleSpeakToHuman(forConversationId?: string) {
-    const currentMessages = messagesRef.current
+  async function handleSpeakToHuman(options: SupportRequestOptions = {}) {
+    const currentMessages = options.messagesOverride ?? messagesRef.current
 
     if (supportRequestId) return
 
@@ -433,14 +510,14 @@ export default function Page() {
         id: crypto.randomUUID(),
         role: "assistant",
         mode: "handoff",
-        content: OUTSIDE_HOURS_NOTICE,
+        content: uiText.outsideHoursNotice || OUTSIDE_HOURS_NOTICE,
         sources: [],
       }
       setMessages((prev) => [...prev, closedMsg])
       return
     }
 
-    let conversationId = forConversationId ?? activeConvIdRef.current
+    let conversationId = options.forConversationId ?? activeConvIdRef.current
 
     if (!conversationId) {
       const newConversationId = crypto.randomUUID()
@@ -461,6 +538,9 @@ export default function Page() {
           conversationId,
           title: activeConversation?.title ?? "Live Support Request",
           messages: currentMessages,
+          escalationReason: options.escalationReason,
+          escalationPriority: options.escalationPriority,
+          sentimentLabel: options.sentimentLabel,
         }),
       })
 
@@ -479,7 +559,9 @@ export default function Page() {
         id: crypto.randomUUID(),
         role: "assistant",
         mode: "handoff",
-        content: HANDOFF_NOTICE,
+        content: options.automatic
+          ? `${uiText.handoffNotice || HANDOFF_NOTICE}\n\nI forwarded this automatically because this question may need help from a Financial Aid advisor.`
+          : uiText.handoffNotice || HANDOFF_NOTICE,
         sources: [],
       }
 
@@ -576,7 +658,7 @@ export default function Page() {
                 <button
                   type="button"
                   onClick={() => handleSpeakToHuman()}
-                  title={supportAvailability.note}
+                  title={uiText.supportHoursNote}
                   className="flex shrink-0 items-center gap-1.5 rounded-xl border border-white/25 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-[0.97]"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
@@ -604,7 +686,7 @@ export default function Page() {
               onStart={handleStartFromIntro}
               onLiveSupport={handleLiveSupportFromIntro}
               liveSupportLabel={supportAvailability.label}
-              liveSupportNote={supportAvailability.note}
+              liveSupportNote={uiText.supportHoursNote}
               uiText={uiText}
             />
           )}

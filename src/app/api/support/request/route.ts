@@ -14,6 +14,8 @@ type IncomingMessage = {
   content?: string
 }
 
+const ESCALATION_NOTE_PREFIX = "[Support escalation]"
+
 function latestUserQuestion(messages: IncomingMessage[]) {
   const latest = [...messages]
     .reverse()
@@ -29,6 +31,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}))
 
     const messages = Array.isArray(body.messages) ? (body.messages as IncomingMessage[]) : []
+    const escalationReason = (body.escalationReason as string | undefined)?.trim()
+    const sentimentLabel = (body.sentimentLabel as string | undefined)?.trim()
+    const escalationPriority = (body.escalationPriority as string | undefined)?.trim()
     const conversationId = (body.conversationId as string | undefined)?.trim() || crypto.randomUUID()
     const title =
       (body.title as string | undefined)?.trim() ||
@@ -70,6 +75,20 @@ export async function POST(req: NextRequest) {
       if (rows.length > 0) {
         await db.insert(chatMessages).values(rows)
       }
+    }
+
+    if (escalationReason) {
+      const noteParts = [
+        `${ESCALATION_NOTE_PREFIX} ${escalationReason}`,
+        sentimentLabel ? `Sentiment: ${sentimentLabel}` : null,
+        escalationPriority ? `Priority: ${escalationPriority}` : null,
+      ].filter(Boolean)
+
+      await db.insert(chatMessages).values({
+        conversationId,
+        role: "assistant",
+        content: noteParts.join(" | "),
+      })
     }
 
     const [existingRequest] = await db

@@ -516,8 +516,9 @@ export default function AdminConsolePage() {
                           <h2 className="mt-1 line-clamp-2 text-base font-semibold text-slate-900">
                             {request.latestQuestion}
                           </h2>
-                          <p className="mt-2 rounded-lg bg-[#fdf8f8] px-3 py-2 text-sm text-slate-600">
-                            Chatbot note: {request.chatbotNote}
+                          <p className="mt-2 rounded-lg border border-[#eadfe0] bg-[#fdf8f8] px-3 py-2 text-sm text-slate-600">
+                            <span className="font-semibold text-slate-800">Escalation reason:</span>{" "}
+                            {request.chatbotNote}
                           </p>
                         </div>
                         <button
@@ -531,6 +532,19 @@ export default function AdminConsolePage() {
 
                       {expanded && (
                         <div className="mt-5 border-t border-[#f0e8e8] pt-5">
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                                Conversation transcript
+                              </p>
+                              <p className="mt-1 text-xs text-slate-400">
+                                User and chatbot messages before handoff, followed by advisor replies.
+                              </p>
+                            </div>
+                            <span className="rounded-full border border-[#e5dede] bg-white px-3 py-1 text-xs font-semibold text-slate-500">
+                              {timeline.length} messages
+                            </span>
+                          </div>
                           <div className="space-y-3">
                             {timeline.length === 0 ? (
                               <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-400">

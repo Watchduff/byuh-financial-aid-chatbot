@@ -7,6 +7,15 @@ export type UIMessage = {
   mode?: "grounded" | "demo" | "unavailable" | "handoff"
   sources?: string[]
   agentName?: string
+  sentiment?: {
+    label: "neutral" | "confused" | "frustrated" | "urgent"
+    score: number
+  }
+  escalation?: {
+    shouldEscalate: boolean
+    reason: string
+    priority: "normal" | "high"
+  }
 }
 
 type UseChatOptions = {
@@ -56,6 +65,8 @@ export function useChat(options?: UseChatOptions) {
           mode,
           content: data.message || data.response || "",
           sources: Array.isArray(data.sources) ? data.sources : [],
+          sentiment: data.sentiment,
+          escalation: data.escalation,
         }
 
         setMessages((prev) => [...prev, assistantMessage])

@@ -6,6 +6,8 @@ import { agentMessages, chatMessages, supportRequests } from "@/db/schema"
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
+const ESCALATION_NOTE_PREFIX = "[Support escalation]"
+
 export async function GET(req: NextRequest) {
   try {
     const status = req.nextUrl.searchParams.get("status")
@@ -38,11 +40,16 @@ export async function GET(req: NextRequest) {
           .where(eq(agentMessages.supportRequestId, request.id))
           .orderBy(asc(agentMessages.createdAt))
 
+        const escalationNotes = history
+          .filter((message) => message.content.startsWith(ESCALATION_NOTE_PREFIX))
+          .map((message) => message.content.replace(ESCALATION_NOTE_PREFIX, "").trim())
+        const visibleHistory = history.filter((message) => !message.content.startsWith(ESCALATION_NOTE_PREFIX))
+
         return {
           ...request,
           latestQuestion: request.userMessage,
-          chatbotNote: "User asked to speak to a human",
-          chatHistory: history,
+          chatbotNote: escalationNotes.at(-1) || "User asked to speak to a human",
+          chatHistory: visibleHistory,
           adminMessages: replies,
         }
       })

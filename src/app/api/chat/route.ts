@@ -14,6 +14,26 @@ import { DEFAULT_LANGUAGE_CODE, getSupportedLanguage, type SupportedLanguage } f
 //   "unavailable"— KB is empty/unreachable AND no demo answer matched
 // ---------------------------------------------------------------------------
 export type ResponseMode = "grounded" | "demo" | "unavailable"
+type SentimentLabel = "neutral" | "confused" | "frustrated" | "urgent"
+
+function sentiment(label: SentimentLabel, score: number) {
+  return { label, score }
+}
+
+function escalation(reason: string, priority: "normal" | "high" = "normal") {
+  return { shouldEscalate: true, reason, priority }
+}
+
+function detectSentiment(message: string): { label: SentimentLabel; score: number } {
+  if (isFrustration(message)) return sentiment("frustrated", 0.9)
+  if (/\b(urgent|asap|immediately|right now|emergency|deadline today|due today)\b/i.test(message)) {
+    return sentiment("urgent", 0.85)
+  }
+  if (/\b(confused|lost|don't understand|do not understand|unclear|not sure|help me understand)\b/i.test(message)) {
+    return sentiment("confused", 0.72)
+  }
+  return sentiment("neutral", 0.2)
+}
 
 // Maximum cosine distance (0–1) allowed for a retrieved chunk to be treated
 // as relevant. pgvector's <=> operator returns cosine distance where
@@ -389,6 +409,7 @@ function languageInstruction(language: SupportedLanguage): string {
 // No technical error details are ever included in the response body.
 // ---------------------------------------------------------------------------
 async function buildFallbackResponse(message: string, language: SupportedLanguage): Promise<NextResponse> {
+  const currentSentiment = detectSentiment(message)
   const demoAnswer = getDemoAnswer(message)
   if (demoAnswer) {
     console.log("[chat] Serving demo response")
@@ -396,6 +417,7 @@ async function buildFallbackResponse(message: string, language: SupportedLanguag
       mode: "demo" as ResponseMode,
       message: await localizeResponse(demoAnswer, language),
       sources: [],
+      sentiment: currentSentiment,
     })
   }
 
@@ -409,6 +431,8 @@ async function buildFallbackResponse(message: string, language: SupportedLanguag
     mode: "unavailable" as ResponseMode,
     message: await localizeResponse(unavailableMessage, language),
     sources: [],
+    sentiment: currentSentiment,
+    escalation: escalation("The chatbot could not access a reliable knowledge-base answer.", "high"),
   })
 }
 
@@ -492,6 +516,7 @@ export async function POST(req: Request) {
     const body = await req.json()
     const message = (body.message ?? "").trim()
     const language = getSupportedLanguage(body.languageCode)
+    const currentSentiment = detectSentiment(message)
 
     if (!message) {
       return NextResponse.json({ error: "Message is required." }, { status: 400 })
@@ -504,6 +529,7 @@ export async function POST(req: Request) {
         mode: "grounded" as ResponseMode,
         message: await localizeResponse(SENSITIVE_INFO_RESPONSE, language),
         sources: [],
+        sentiment: currentSentiment,
       })
     }
 
@@ -514,6 +540,7 @@ export async function POST(req: Request) {
         mode: "grounded" as ResponseMode,
         message: await localizeResponse(CONVERSATIONAL_OPENER_RESPONSE, language),
         sources: [],
+        sentiment: currentSentiment,
       })
     }
 
@@ -524,6 +551,8 @@ export async function POST(req: Request) {
         mode: "grounded" as ResponseMode,
         message: await localizeResponse(FRUSTRATION_RESPONSE, language),
         sources: [],
+        sentiment: currentSentiment,
+        escalation: escalation("The user appears frustrated and may need human support.", "high"),
       })
     }
 
@@ -534,6 +563,7 @@ export async function POST(req: Request) {
         mode: "grounded" as ResponseMode,
         message: await localizeResponse(OUT_OF_SCOPE_RESPONSE, language),
         sources: [],
+        sentiment: currentSentiment,
       })
     }
 
@@ -568,6 +598,8 @@ export async function POST(req: Request) {
         mode: "grounded" as ResponseMode,
         message: await localizeResponse(lowConfidenceMessage, language),
         sources: [],
+        sentiment: currentSentiment,
+        escalation: escalation("The chatbot found low-confidence context and could not answer reliably.", "normal"),
       })
     }
 
@@ -592,7 +624,16 @@ export async function POST(req: Request) {
     }
 
     const sources = Array.from(new Set(rows.map((r) => r.url)))
-    return NextResponse.json({ mode: "grounded" as ResponseMode, message: answer, sources })
+    return NextResponse.json({
+      mode: "grounded" as ResponseMode,
+      message: answer,
+      sources,
+      sentiment: currentSentiment,
+      escalation:
+        currentSentiment.label === "urgent" || currentSentiment.label === "frustrated"
+          ? escalation(`Detected ${currentSentiment.label} user sentiment.`, currentSentiment.label === "frustrated" ? "high" : "normal")
+          : undefined,
+    })
   } catch (error) {
     console.error("[chat] Unhandled error:", error)
     return NextResponse.json({
