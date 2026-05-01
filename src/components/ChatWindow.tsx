@@ -47,7 +47,7 @@ export default function ChatWindow({ messages, isLoading, error, supportRequestI
       )}
 
       {messages.map((msg, i) => (
-        <div key={msg.id}>
+        <div key={`${msg.id}-${i}`}>
           <MessageBubble
             role={msg.role as "user" | "assistant" | "agent"}
             content={msg.content}

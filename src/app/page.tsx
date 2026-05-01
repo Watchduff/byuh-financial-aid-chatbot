@@ -44,6 +44,7 @@ export default function Page() {
 
   const activeConvIdRef = useRef<string | null>(null)
   const messagesRef = useRef<UIMessage[]>([])
+  const seenAgentMessageIdsRef = useRef<Set<string>>(new Set())
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const studentTypingRef = useRef(false)
   const studentTypingOffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -59,6 +60,7 @@ export default function Page() {
 
   useEffect(() => { activeConvIdRef.current = activeConversationId })
   useEffect(() => { messagesRef.current = messages })
+  useEffect(() => { seenAgentMessageIdsRef.current = seenAgentMessageIds }, [seenAgentMessageIds])
 
   useEffect(() => {
     if (!supportRequestId) {
@@ -99,7 +101,8 @@ export default function Page() {
           data.messages ?? []
         const requestStatus = data.supportRequest?.status as string | undefined
 
-        const newOnes = incoming.filter((m) => !seenAgentMessageIds.has(m.id))
+        const alreadySeen = seenAgentMessageIdsRef.current
+        const newOnes = incoming.filter((m) => !alreadySeen.has(m.id))
         const nextMessages: UIMessage[] = newOnes.map((m) => ({
           id: m.id,
           role: "agent",
@@ -129,10 +132,15 @@ export default function Page() {
 
         if (nextMessages.length === 0) return
 
-        setMessages((prev) => [...prev, ...nextMessages])
+        setMessages((prev) => {
+          const existingIds = new Set(prev.map((message) => message.id))
+          const uniqueNextMessages = nextMessages.filter((message) => !existingIds.has(message.id))
+          return uniqueNextMessages.length > 0 ? [...prev, ...uniqueNextMessages] : prev
+        })
         setSeenAgentMessageIds((prev) => {
           const next = new Set(prev)
           newOnes.forEach((m) => next.add(m.id))
+          seenAgentMessageIdsRef.current = next
           return next
         })
       } catch {
@@ -144,7 +152,7 @@ export default function Page() {
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
     }
-  }, [completedSupportRequestIds, supportRequestId, seenAgentMessageIds, setMessages])
+  }, [completedSupportRequestIds, supportRequestId, setMessages])
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -304,6 +312,7 @@ export default function Page() {
     setSupportRequestId(null)
     setAdminTyping(false)
     setSeenAgentMessageIds(new Set())
+    seenAgentMessageIdsRef.current = new Set()
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
   }
 
@@ -320,6 +329,7 @@ export default function Page() {
     setSupportRequestId(null)
     setAdminTyping(false)
     setSeenAgentMessageIds(new Set())
+    seenAgentMessageIdsRef.current = new Set()
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
   }
 
@@ -332,6 +342,7 @@ export default function Page() {
       setSupportRequestId(null)
       setAdminTyping(false)
       setSeenAgentMessageIds(new Set())
+      seenAgentMessageIdsRef.current = new Set()
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
     }
     setConversations((prev) => prev.filter((c) => c.id !== id))
