@@ -2,8 +2,11 @@ import { useState, useCallback } from "react"
 
 export type UIMessage = {
   id: string
-  role: "user" | "assistant"
+  role: "user" | "assistant" | "agent"
   content: string
+  mode?: "grounded" | "demo" | "unavailable" | "handoff"
+  sources?: string[]
+  agentName?: string
 }
 
 type UseChatOptions = {
@@ -41,22 +44,29 @@ export function useChat(options?: UseChatOptions) {
         }
 
         const data = await response.json()
+        const mode = ["grounded", "demo", "unavailable", "handoff"].includes(data.mode)
+          ? data.mode
+          : undefined
 
         const assistantMessage: UIMessage = {
           id: crypto.randomUUID(),
           role: "assistant",
+          mode,
           content: data.message || data.response || "",
+          sources: Array.isArray(data.sources) ? data.sources : [],
         }
 
         setMessages((prev) => [...prev, assistantMessage])
         setStatus("idle")
+        return { userMessage, assistantMessage }
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err))
         setError(error)
         setStatus("idle")
+        return { userMessage, assistantMessage: null }
       }
     },
-    [messages, options]
+    [options]
   )
 
   const stop = useCallback(() => {

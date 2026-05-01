@@ -10,8 +10,8 @@
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:migrate": "tsx src/db/migrate.ts",
-    "ingest": "tsx src/scripts/ingest.ts"
+    "db:migrate": "tsx --env-file=.env.local src/db/migrate.ts",
+    "ingest": "tsx --env-file=.env.local src/scripts/ingest.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",

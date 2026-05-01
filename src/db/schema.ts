@@ -70,6 +70,34 @@ export const chatMessages = pgTable("chat_messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })
 
+// support_requests — when users request live agent assistance
+export const supportRequests = pgTable("support_requests", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id")
+    .references(() => sessions.id, { onDelete: "cascade" })
+    .notNull(),
+  conversationId: text("conversation_id")
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  userMessage: text("user_message").notNull(),
+  userEmail: text("user_email"),
+  userPhone: text("user_phone"),
+  status: text("status").$type<"pending" | "active" | "answered" | "deleted" | "assigned" | "resolved" | "closed">().default("pending").notNull(),
+  assignedAgentName: text("assigned_agent_name"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+})
+
+// agent_messages — messages sent by human agents in response to support requests
+export const agentMessages = pgTable("agent_messages", {
+  id: text("id").primaryKey(),
+  supportRequestId: text("support_request_id")
+    .references(() => supportRequests.id, { onDelete: "cascade" })
+    .notNull(),
+  agentName: text("agent_name").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+})
+
 export type Page = typeof pages.$inferSelect
 export type NewPage = typeof pages.$inferInsert
 export type Chunk = typeof chunks.$inferSelect
@@ -77,3 +105,7 @@ export type NewChunk = typeof chunks.$inferInsert
 export type Session = typeof sessions.$inferSelect
 export type Conversation = typeof conversations.$inferSelect
 export type ChatMessage = typeof chatMessages.$inferSelect
+export type SupportRequest = typeof supportRequests.$inferSelect
+export type NewSupportRequest = typeof supportRequests.$inferInsert
+export type AgentMessage = typeof agentMessages.$inferSelect
+export type NewAgentMessage = typeof agentMessages.$inferInsert

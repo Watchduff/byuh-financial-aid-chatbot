@@ -28,9 +28,22 @@ export async function POST(req: NextRequest) {
   const sessionId = await getOrCreateSession(cookieStore)
 
   const body = await req.json().catch(() => ({}))
+  const requestedId = (body.id as string | undefined)?.trim()
   const title = (body.title as string | undefined)?.slice(0, 80) || "New Conversation"
 
-  const id = crypto.randomUUID()
+  if (requestedId) {
+    const [existing] = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, requestedId))
+      .limit(1)
+
+    if (existing) {
+      return Response.json({ conversation: existing }, { status: 200 })
+    }
+  }
+
+  const id = requestedId || crypto.randomUUID()
   const [conv] = await db
     .insert(conversations)
     .values({ id, sessionId, title })

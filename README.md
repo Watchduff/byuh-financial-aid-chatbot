@@ -1,36 +1,174 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BYU–Hawaii Financial Aid Assistant
 
-## Getting Started
+An AI-powered chatbot that answers student questions about financial aid at BYU–Hawaii — scholarships, FAFSA, tuition, iWork, grants, and deadlines — backed by a live-support escalation system for human advisors.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Features
+
+- **RAG chatbot** — Answers questions using content scraped from `financialaid.byuh.edu`, embedded with OpenAI, and retrieved via pgvector cosine similarity
+- **Source citations** — Every response links back to the original BYUH web pages
+- **Live support escalation** — Students can request a human advisor; messages are delivered in real time via polling
+- **Admin dashboard** — Advisors log in, view support requests, reply to students, and update request status
+- **Session history** — Conversations are stored per browser session; students can switch between past chats
+- **Mobile-friendly** — Responsive layout with collapsible sidebar
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16 (App Router) |
+| Language | TypeScript |
+| Styling | Tailwind CSS v4 |
+| Database | Neon PostgreSQL (serverless) |
+| ORM | Drizzle ORM |
+| Vector search | pgvector (`<=>` cosine similarity) |
+| Embeddings | OpenAI `text-embedding-3-small` (1536 dims) |
+| AI responses | Anthropic Claude (`claude-haiku-4-5`) |
+| Scraping | Axios + Cheerio (BFS crawler) |
+
+---
+
+## Project Structure
+
+```
+src/
+├── app/
+│   ├── page.tsx                        # Student chatbot UI
+│   ├── layout.tsx
+│   ├── globals.css
+│   ├── admin/
+│   │   ├── page.tsx                    # Admin login
+│   │   └── dashboard/
+│   │       ├── page.tsx                # Support request list
+│   │       └── [id]/page.tsx           # Individual request + reply
+│   └── api/
+│       ├── chat/route.ts               # RAG chat endpoint
+│       ├── support-requests/route.ts   # Create support request
+│       ├── user/agent-messages/        # Student polling endpoint
+│       └── admin/
+│           ├── auth/route.ts           # Admin login/logout
+│           ├── support-requests/       # List + update requests
+│           └── agent-messages/         # Send/fetch agent replies
+├── components/
+│   ├── Sidebar.tsx
+│   ├── IntroScreen.tsx
+│   ├── ChatWindow.tsx
+│   ├── ChatInput.tsx
+│   ├── MessageBubble.tsx
+│   └── LoadingIndicator.tsx
+├── db/
+│   ├── index.ts                        # Drizzle + Neon client
+│   ├── schema.ts                       # Tables: pages, chunks, conversations, messages, supportRequests, agentMessages
+│   └── migrate.ts                      # Migration runner
+├── lib/
+│   ├── scraper.ts                      # Single-page content extractor
+│   ├── chunker.ts                      # Text splitter
+│   ├── openai.ts                       # Embedding helper
+│   ├── adminAuth.ts                    # Cookie-based admin auth
+│   └── useChat.ts                      # Custom React chat hook
+└── scripts/
+    └── ingest.ts                       # BFS crawler + embed pipeline
+drizzle/
+├── 0000_first_sister_grimm.sql         # Initial schema
+├── 0001_sticky_annihilus.sql           # Sessions + conversations
+├── 0002_add_support_requests.sql       # Support request table
+├── 0003_add_agent_messages.sql         # Agent messages + assignedAgentName
+└── meta/_journal.json
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Setup
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 1. Prerequisites
 
-## Learn More
+- Node.js 20+
+- pnpm (`npm install -g pnpm`)
+- A [Neon](https://neon.tech) PostgreSQL database with the `pgvector` extension enabled
+- An [OpenAI](https://platform.openai.com) API key
+- An [Anthropic](https://console.anthropic.com) API key
 
-To learn more about Next.js, take a look at the following resources:
+### 2. Install dependencies
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+pnpm install
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 3. Configure environment
 
-## Deploy on Vercel
+Create `.env.local` in the project root:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```env
+DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+ADMIN_SECRET=your-admin-password
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### 4. Push the database schema
+
+```bash
+pnpm db:push
+```
+
+This uses Drizzle's push mode to create all tables directly from `src/db/schema.ts`.
+
+### 5. Run the ingestion pipeline
+
+Crawls `financialaid.byuh.edu`, scrapes content, chunks it, embeds it, and stores it in the database.
+
+```bash
+pnpm ingest
+```
+
+This takes a few minutes. It processes up to 60 pages with a polite 500 ms delay between requests.
+
+### 6. Start the dev server
+
+```bash
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) for the student chatbot.
+Open [http://localhost:3000/admin](http://localhost:3000/admin) for the admin portal.
+
+---
+
+## Available Scripts
+
+| Script | Description |
+|---|---|
+| `pnpm dev` | Start development server on port 3000 |
+| `pnpm build` | Production build |
+| `pnpm start` | Start production server |
+| `pnpm ingest` | Run the BFS scraper + embedding pipeline |
+| `pnpm db:push` | Push schema changes to the database |
+| `pnpm db:generate` | Generate Drizzle migration files |
+| `pnpm db:migrate` | Run migration files against the database |
+
+---
+
+## Admin Access
+
+Navigate to `/admin` and enter the password set in `ADMIN_SECRET`.
+
+From the dashboard, advisors can:
+- View all support requests filtered by status (pending / assigned / resolved / closed)
+- Click into a request to see the full conversation history
+- Send replies that appear in the student's chat in real time (3-second polling)
+- Update the request status
+
+---
+
+## Re-ingesting Content
+
+The ingestion pipeline is idempotent — re-running it updates existing pages and replaces stale chunks:
+
+```bash
+pnpm ingest
+```
+
+The scraper stays within `financialaid.byuh.edu` and respects a crawl limit of 60 pages.
