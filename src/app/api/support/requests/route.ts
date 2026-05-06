@@ -16,7 +16,9 @@ export async function GET(req: NextRequest) {
         ? inArray(supportRequests.status, ["pending", "active", "assigned"])
         : status === "answered"
           ? eq(supportRequests.status, "answered")
-          : inArray(supportRequests.status, ["pending", "active", "assigned", "answered"])
+          : status === "deleted"
+            ? eq(supportRequests.status, "deleted")
+            : inArray(supportRequests.status, ["pending", "active", "assigned", "answered", "deleted"])
 
     const requests = await db
       .select()

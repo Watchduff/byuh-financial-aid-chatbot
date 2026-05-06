@@ -67,6 +67,10 @@ export const chatMessages = pgTable("chat_messages", {
     .notNull(),
   role: text("role").$type<"user" | "assistant">().notNull(),
   content: text("content").notNull(),
+  responseMode: text("response_mode"),
+  responseConfidence: text("response_confidence").$type<"high" | "low">(),
+  responseConfidenceScore: integer("response_confidence_score"),
+  responseSources: text("response_sources"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })
 
@@ -83,6 +87,8 @@ export const supportRequests = pgTable("support_requests", {
   userPhone: text("user_phone"),
   status: text("status").$type<"pending" | "active" | "answered" | "deleted" | "assigned" | "resolved" | "closed">().default("pending").notNull(),
   assignedAgentName: text("assigned_agent_name"),
+  deletedFromStatus: text("deleted_from_status").$type<"pending" | "answered">(),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 })

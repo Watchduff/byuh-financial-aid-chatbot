@@ -11,12 +11,20 @@ export const runtime = "nodejs"
 type IncomingChatMessage = {
   role?: string
   content?: string
+  mode?: string
+  confidence?: string
+  confidenceScore?: number
+  sources?: string[]
 }
 
 type ChatMessageInsert = {
   conversationId: string
   role: "user" | "assistant"
   content: string
+  responseMode?: string | null
+  responseConfidence?: "high" | "low" | null
+  responseConfidenceScore?: number | null
+  responseSources?: string | null
 }
 
 // GET /api/messages?conversationId=<id> — load all messages for a conversation
@@ -78,10 +86,21 @@ export async function POST(req: NextRequest) {
       if (message.role !== "user" && message.role !== "assistant") return []
       const content = message.content?.trim()
       if (!content) return []
+      const confidence = message.confidence === "high" || message.confidence === "low" ? message.confidence : null
       return [{
         conversationId,
         role: message.role,
         content,
+        responseMode: message.role === "assistant" && typeof message.mode === "string" ? message.mode : null,
+        responseConfidence: message.role === "assistant" ? confidence : null,
+        responseConfidenceScore:
+          message.role === "assistant" && typeof message.confidenceScore === "number"
+            ? Math.round(message.confidenceScore)
+            : null,
+        responseSources:
+          message.role === "assistant" && Array.isArray(message.sources)
+            ? JSON.stringify(message.sources.filter((source) => typeof source === "string"))
+            : null,
       }]
     })
 

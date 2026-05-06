@@ -5,6 +5,8 @@ export type UIMessage = {
   role: "user" | "assistant" | "agent"
   content: string
   mode?: "grounded" | "demo" | "unavailable" | "handoff"
+  confidence?: "high" | "low"
+  confidenceScore?: number
   sources?: string[]
   agentName?: string
   sentiment?: {
@@ -63,6 +65,8 @@ export function useChat(options?: UseChatOptions) {
           id: crypto.randomUUID(),
           role: "assistant",
           mode,
+          confidence: data.confidence === "low" ? "low" : data.confidence === "high" ? "high" : undefined,
+          confidenceScore: typeof data.confidenceScore === "number" ? data.confidenceScore : undefined,
           content: data.message || data.response || "",
           sources: Array.isArray(data.sources) ? data.sources : [],
           sentiment: data.sentiment,

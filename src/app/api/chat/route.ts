@@ -416,6 +416,8 @@ async function buildFallbackResponse(message: string, language: SupportedLanguag
     return NextResponse.json({
       mode: "demo" as ResponseMode,
       message: await localizeResponse(demoAnswer, language),
+      confidence: "high",
+      confidenceScore: 80,
       sources: [],
       sentiment: currentSentiment,
     })
@@ -430,6 +432,8 @@ async function buildFallbackResponse(message: string, language: SupportedLanguag
   return NextResponse.json({
     mode: "unavailable" as ResponseMode,
     message: await localizeResponse(unavailableMessage, language),
+    confidence: "low",
+    confidenceScore: 0,
     sources: [],
     sentiment: currentSentiment,
     escalation: escalation("The chatbot could not access a reliable knowledge-base answer.", "high"),
@@ -449,6 +453,7 @@ type RetrievalResult = {
   rows: ContextRow[]
   /** True when the top result is close enough to the query to be trusted */
   confident: boolean
+  confidenceScore: number
 }
 
 async function retrieveChunks(message: string): Promise<RetrievalResult> {
@@ -480,6 +485,7 @@ async function retrieveChunks(message: string): Promise<RetrievalResult> {
       return {
         rows: rows.map(({ content, url, title }) => ({ content, url, title })),
         confident,
+        confidenceScore: Math.max(0, Math.min(100, Math.round((1 - bestDistance) * 100))),
       }
     }
   } catch (err) {
@@ -494,7 +500,7 @@ async function retrieveChunks(message: string): Promise<RetrievalResult> {
     .filter((t) => t.length > 2)
     .slice(0, 8)
 
-  if (terms.length === 0) return { rows: [], confident: false }
+  if (terms.length === 0) return { rows: [], confident: false, confidenceScore: 0 }
 
   const rows = await db
     .select({ content: chunks.content, url: pages.url, title: pages.title })
@@ -505,7 +511,7 @@ async function retrieveChunks(message: string): Promise<RetrievalResult> {
 
   console.log(`[chat] Keyword search: ${rows.length} chunks`)
   // Require at least 2 matching chunks before treating the result as confident
-  return { rows, confident: rows.length >= 2 }
+  return { rows, confident: rows.length >= 2, confidenceScore: rows.length >= 2 ? 65 : rows.length > 0 ? 35 : 0 }
 }
 
 // ---------------------------------------------------------------------------
@@ -528,6 +534,8 @@ export async function POST(req: Request) {
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
         message: await localizeResponse(SENSITIVE_INFO_RESPONSE, language),
+        confidence: "high",
+        confidenceScore: 100,
         sources: [],
         sentiment: currentSentiment,
       })
@@ -539,6 +547,8 @@ export async function POST(req: Request) {
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
         message: await localizeResponse(CONVERSATIONAL_OPENER_RESPONSE, language),
+        confidence: "high",
+        confidenceScore: 100,
         sources: [],
         sentiment: currentSentiment,
       })
@@ -550,6 +560,8 @@ export async function POST(req: Request) {
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
         message: await localizeResponse(FRUSTRATION_RESPONSE, language),
+        confidence: "high",
+        confidenceScore: 100,
         sources: [],
         sentiment: currentSentiment,
         escalation: escalation("The user appears frustrated and may need human support.", "high"),
@@ -562,6 +574,8 @@ export async function POST(req: Request) {
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
         message: await localizeResponse(OUT_OF_SCOPE_RESPONSE, language),
+        confidence: "high",
+        confidenceScore: 100,
         sources: [],
         sentiment: currentSentiment,
       })
@@ -576,7 +590,7 @@ export async function POST(req: Request) {
       return buildFallbackResponse(message, language)
     }
 
-    const { rows, confident } = result
+    const { rows, confident, confidenceScore } = result
 
     // Step 3: Empty KB — no ingested data yet
     if (rows.length === 0) {
@@ -597,6 +611,8 @@ export async function POST(req: Request) {
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
         message: await localizeResponse(lowConfidenceMessage, language),
+        confidence: "low",
+        confidenceScore,
         sources: [],
         sentiment: currentSentiment,
         escalation: escalation("The chatbot found low-confidence context and could not answer reliably.", "normal"),
@@ -627,6 +643,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       mode: "grounded" as ResponseMode,
       message: answer,
+      confidence: "high",
+      confidenceScore,
       sources,
       sentiment: currentSentiment,
       escalation:
@@ -639,6 +657,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       mode: "unavailable" as ResponseMode,
       message: "Something went wrong. Please try again.",
+      confidence: "low",
+      confidenceScore: 0,
       sources: [],
     })
   }
