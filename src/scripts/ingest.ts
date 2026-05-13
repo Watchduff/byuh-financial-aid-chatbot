@@ -11,10 +11,26 @@ import { scrapePage } from "@/lib/scraper"
 import { chunkText } from "@/lib/chunker"
 import { getEmbedding } from "@/lib/openai"
 
-const START_URL = "https://financialaid.byuh.edu/"
-const ALLOWED_HOSTNAME = "financialaid.byuh.edu"
-const MAX_PAGES = 60
-const DELAY_MS = 500
+function envNumber(name: string, fallback: number): number {
+  const value = Number(process.env[name])
+  return Number.isFinite(value) && value > 0 ? value : fallback
+}
+
+function envBoolean(name: string): boolean {
+  return /^(1|true|yes)$/i.test(process.env[name] ?? "")
+}
+
+const START_URL = process.env.INGEST_START_URL ?? "https://financialaid.byuh.edu/"
+const ALLOWED_HOSTNAMES = new Set(
+  (process.env.INGEST_ALLOWED_HOSTS ?? "financialaid.byuh.edu,www.financialaid.byuh.edu")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean)
+)
+const MAX_PAGES = envNumber("INGEST_MAX_PAGES", 60)
+const DELAY_MS = envNumber("INGEST_DELAY_MS", 500)
+const CRAWL_TIMEOUT_MS = envNumber("INGEST_CRAWL_TIMEOUT_MS", 30000)
+const SCRAPE_ONLY = envBoolean("INGEST_SCRAPE_ONLY")
 const SKIP_EXTENSIONS =
   /\.(pdf|jpg|jpeg|png|gif|svg|css|js|zip|doc|docx|xls|xlsx|mp4|mp3|webp|ico|woff|woff2|ttf|eot)$/i
 
@@ -26,6 +42,7 @@ const embedLimit = pLimit(5)
 // ---------------------------------------------------------------------------
 async function crawl(startUrl: string): Promise<string[]> {
   const visited = new Set<string>()
+  const crawlable = new Set<string>()
   const queue: string[] = [startUrl]
 
   while (queue.length > 0 && visited.size < MAX_PAGES) {
@@ -35,12 +52,17 @@ async function crawl(startUrl: string): Promise<string[]> {
 
     try {
       const { data, headers } = await axios.get(url, {
-        timeout: 15000,
+        timeout: CRAWL_TIMEOUT_MS,
         headers: { "User-Agent": "Mozilla/5.0 BYUH-FinancialAid-Bot/1.0" },
       })
 
       const contentType = (headers["content-type"] as string) ?? ""
-      if (!contentType.includes("text/html")) continue
+      if (!contentType.includes("text/html")) {
+        console.warn(`  Skipping non-HTML response: ${url} (${contentType || "unknown content type"})`)
+        continue
+      }
+
+      crawlable.add(url)
 
       const $ = cheerio.load(data)
 
@@ -54,7 +76,7 @@ async function crawl(startUrl: string): Promise<string[]> {
           const clean = resolved.toString()
 
           if (
-            resolved.hostname === ALLOWED_HOSTNAME &&
+            ALLOWED_HOSTNAMES.has(resolved.hostname.toLowerCase()) &&
             !SKIP_EXTENSIONS.test(clean) &&
             !visited.has(clean) &&
             !queue.includes(clean)
@@ -68,12 +90,14 @@ async function crawl(startUrl: string): Promise<string[]> {
 
       // Polite crawl delay
       await new Promise((r) => setTimeout(r, DELAY_MS))
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn(`  Crawl error detail: ${message}`)
       console.warn(`  ⚠ Could not crawl: ${url}`)
     }
   }
 
-  return Array.from(visited)
+  return Array.from(crawlable)
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +133,10 @@ async function ingestPage(url: string): Promise<number> {
   const textChunks = chunkText(content)
   console.log(`  title  : ${title}`)
   console.log(`  chunks : ${textChunks.length}`)
+
+  if (SCRAPE_ONLY) {
+    return textChunks.length
+  }
 
   const pageId = await upsertPage(url, title)
 
@@ -152,6 +180,8 @@ async function main() {
   console.log("\nBYUH Financial Aid Ingestion Pipeline")
   console.log("======================================\n")
   console.log(`Crawling: ${START_URL}\n`)
+  console.log(`Max pages: ${MAX_PAGES}`)
+  console.log(`Mode     : ${SCRAPE_ONLY ? "scrape only (no DB/OpenAI writes)" : "scrape, embed, and store"}\n`)
 
   const urls = await crawl(START_URL)
   console.log(`Found ${urls.length} pages to ingest\n`)

@@ -6,6 +6,8 @@ export interface ScrapedPage {
   content: string
 }
 
+const FETCH_TIMEOUT_MS = Number(process.env.SCRAPE_TIMEOUT_MS ?? 30000)
+
 // CMS template variable noise found on BYUH pages
 const CMS_NOISE_REGEX =
   /\b(contentVerticalPosition|overrideVerticalAlignment|contentHorizontalPosition|overrideHorizontalAlignment|overrideBackgroundColorOrImage|overrideTextColor|promoTextAlignment|overrideCardHide\w*|overridebuttonBgColor|overrideButtonText|data-content-type)\s*[:=][^,\n]*/g
@@ -25,22 +27,33 @@ function cleanTitle(raw: string): string {
 export async function scrapePage(url: string, html?: string): Promise<ScrapedPage> {
   let rawHtml = html
 
- if (!rawHtml) {
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    },
-  })
+  if (!rawHtml) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
-  if (!res.ok) {
-    throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`)
+    try {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+      })
+
+      if (!res.ok) {
+        throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`)
+      }
+
+      rawHtml = await res.text()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      throw new Error(`Failed to fetch ${url}: ${message}`)
+    } finally {
+      clearTimeout(timeout)
+    }
   }
-
-  rawHtml = await res.text()
-}
 
   const $ = cheerio.load(rawHtml)
 
