@@ -356,13 +356,15 @@ export default function Page() {
     setViewMode("chat")
 
     await ensureServerConversation(id, title)
-    const result = await sendMessage({ text: question })
+    const result = await sendMessage({ text: question, conversationId: id, conversationTitle: title })
     if (result) {
       const savedMessages = [
         result.userMessage,
         ...(result.assistantMessage ? [result.assistantMessage] : []),
       ]
-      await saveChatMessages(id, savedMessages)
+      if (!result.assistantMessage?.stored) {
+        await saveChatMessages(id, savedMessages)
+      }
       await maybeAutoEscalate(id, savedMessages, result.assistantMessage)
     }
   }
@@ -419,14 +421,20 @@ export default function Page() {
     }
 
     await ensureServerConversation(conversationId, conversationTitle)
-    const result = await sendMessage({ text: trimmed })
+    const result = await sendMessage({
+      text: trimmed,
+      conversationId,
+      conversationTitle,
+    })
 
     if (result) {
       const savedMessages = [
         result.userMessage,
         ...(result.assistantMessage ? [result.assistantMessage] : []),
       ]
-      await saveChatMessages(conversationId, savedMessages)
+      if (!result.assistantMessage?.stored) {
+        await saveChatMessages(conversationId, savedMessages)
+      }
       await maybeAutoEscalate(conversationId, [...messagesRef.current, ...savedMessages], result.assistantMessage)
     }
   }

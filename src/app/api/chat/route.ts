@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server"
+import { cookies } from "next/headers"
 import { sql, eq, ilike, or } from "drizzle-orm"
 import { db } from "@/db"
 import { chunks, pages } from "@/db/schema"
 import { getEmbedding, generateChatResponse } from "@/lib/openai"
 import { DEFAULT_LANGUAGE_CODE, getSupportedLanguage, type SupportedLanguage } from "@/lib/languages"
+import { getOrCreateSession } from "@/lib/session"
 
 // ---------------------------------------------------------------------------
 // Response mode — included in every response so the frontend can render
@@ -15,6 +17,39 @@ import { DEFAULT_LANGUAGE_CODE, getSupportedLanguage, type SupportedLanguage } f
 // ---------------------------------------------------------------------------
 export type ResponseMode = "grounded" | "demo" | "unavailable"
 type SentimentLabel = "neutral" | "confused" | "frustrated" | "urgent"
+
+async function proxyToFastApi(body: Record<string, unknown>): Promise<NextResponse | null> {
+  const baseUrl = process.env.FASTAPI_URL?.replace(/\/$/, "")
+  if (!baseUrl) return null
+
+  try {
+    const conversationId = typeof body.conversationId === "string" ? body.conversationId.trim() : ""
+    const payload = { ...body }
+    if (conversationId) {
+      const cookieStore = await cookies()
+      payload.sessionId = await getOrCreateSession(cookieStore)
+      payload.conversationId = conversationId
+    }
+
+    const response = await fetch(`${baseUrl}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    const data = await response.json().catch(() => ({
+      mode: "unavailable",
+      message: "The FastAPI service returned an unreadable response.",
+      confidence: "low",
+      confidenceScore: 0,
+      sources: [],
+    }))
+
+    return NextResponse.json(data, { status: response.status })
+  } catch (error) {
+    console.warn("[chat] FastAPI proxy failed, falling back to local Next handler:", error)
+    return null
+  }
+}
 
 function sentiment(label: SentimentLabel, score: number) {
   return { label, score }
@@ -527,6 +562,9 @@ export async function POST(req: Request) {
     if (!message) {
       return NextResponse.json({ error: "Message is required." }, { status: 400 })
     }
+
+    const fastApiResponse = await proxyToFastApi(body)
+    if (fastApiResponse) return fastApiResponse
 
     // Step 1: Do not process sensitive personal information in public chat.
     if (containsSensitiveInfo(message)) {

@@ -13,6 +13,13 @@ out/
 # TypeScript build cache
 *.tsbuildinfo
 
+# Python / FastAPI artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
 # Claude Code artifacts
 .claude/
 

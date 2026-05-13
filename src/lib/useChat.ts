@@ -18,11 +18,18 @@ export type UIMessage = {
     reason: string
     priority: "normal" | "high"
   }
+  stored?: boolean
 }
 
 type UseChatOptions = {
   api?: string
   languageCode?: string
+}
+
+type SendMessageInput = {
+  text: string
+  conversationId?: string
+  conversationTitle?: string
 }
 
 export function useChat(options?: UseChatOptions) {
@@ -31,11 +38,15 @@ export function useChat(options?: UseChatOptions) {
   const [error, setError] = useState<Error | null>(null)
 
   const sendMessage = useCallback(
-    async (message: { text: string }) => {
+    async (message: SendMessageInput) => {
+      const conversationId = message.conversationId
+      const conversationTitle = message.conversationTitle
+
       const userMessage: UIMessage = {
         id: crypto.randomUUID(),
         role: "user",
         content: message.text,
+        stored: false,
       }
 
       setMessages((prev) => [...prev, userMessage])
@@ -49,6 +60,8 @@ export function useChat(options?: UseChatOptions) {
           body: JSON.stringify({
             message: message.text,
             languageCode: options?.languageCode,
+            conversationId,
+            conversationTitle,
           }),
         })
 
@@ -71,6 +84,7 @@ export function useChat(options?: UseChatOptions) {
           sources: Array.isArray(data.sources) ? data.sources : [],
           sentiment: data.sentiment,
           escalation: data.escalation,
+          stored: data.stored === true,
         }
 
         setMessages((prev) => [...prev, assistantMessage])

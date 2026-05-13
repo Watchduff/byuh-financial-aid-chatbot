@@ -106,7 +106,10 @@ DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 ADMIN_SECRET=your-admin-password
+FASTAPI_URL=http://localhost:8000
 ```
+
+`FASTAPI_URL` is optional. When it is set, the Next.js `/api/chat` route forwards chat requests to the FastAPI backend. When it is not set, the original Next.js handler runs locally.
 
 ### 4. Push the database schema
 
@@ -135,6 +138,23 @@ pnpm dev
 Open [http://localhost:3000](http://localhost:3000) for the student chatbot.
 Open [http://localhost:3000/admin](http://localhost:3000/admin) for the admin portal.
 
+### Optional: Run the FastAPI backend
+
+Install the Python dependencies:
+
+```bash
+python -m venv .venv
+.venv\Scripts\python -m pip install -r backend/requirements.txt
+```
+
+Start FastAPI on port 8000:
+
+```bash
+pnpm fastapi:dev
+```
+
+With `FASTAPI_URL=http://localhost:8000` in `.env.local`, Next.js keeps serving the UI while FastAPI handles the heavier RAG chat workload through `POST /chat`.
+
 ---
 
 ## Available Scripts
@@ -144,6 +164,7 @@ Open [http://localhost:3000/admin](http://localhost:3000/admin) for the admin po
 | `pnpm dev` | Start development server on port 3000 |
 | `pnpm build` | Production build |
 | `pnpm start` | Start production server |
+| `pnpm fastapi:dev` | Start the FastAPI backend on port 8000 |
 | `pnpm ingest` | Run the BFS scraper + embedding pipeline |
 | `pnpm db:push` | Push schema changes to the database |
 | `pnpm db:generate` | Generate Drizzle migration files |
