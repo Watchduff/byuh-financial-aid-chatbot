@@ -1862,7 +1862,7 @@ export default function AdminConsolePage() {
                                         <button
                                           key={i}
                                           type="button"
-                                          onClick={() => setReplies((prev) => ({ ...prev, [request.id]: suggestion }))}
+                                          onClick={() => handleReplyChange(request.id, suggestion)}
                                           className="block w-full rounded-lg border border-[#e5dede] bg-white px-3 py-2.5 text-left text-sm text-slate-700 transition hover:border-[#9E1B34]/30 hover:bg-[#fff7f7]"
                                         >
                                           <span className="mr-2 inline-block rounded bg-[#9E1B34]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#9E1B34]">
