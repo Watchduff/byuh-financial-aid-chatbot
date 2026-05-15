@@ -1077,10 +1077,10 @@ export default function AdminConsolePage() {
               </div>
               <div className="hidden rounded-lg border border-[#e5dede] bg-white px-3 py-2 text-right shadow-sm sm:block">
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                  {isHistoryView ? "Questions" : isAnalyticsView ? "Year" : "Visible"}
+                  {isHistoryView ? "Questions" : isAnalyticsView ? "Questions" : "Visible"}
                 </p>
                 <p className="text-lg font-bold text-[#9E1B34]">
-                  {isHistoryView ? visibleChatHistory.length : isAnalyticsView ? analyticsYear : visibleRequests.length}
+                  {isHistoryView ? visibleChatHistory.length : isAnalyticsView ? (analyticsData?.totals.questions ?? "—") : visibleRequests.length}
                 </p>
               </div>
             </div>
@@ -1126,89 +1126,88 @@ export default function AdminConsolePage() {
             ) : isAnalyticsView ? (
               <div className="space-y-5">
                 <section className="rounded-lg border border-[#d8e0e8] bg-white px-6 py-6 shadow-sm">
-                  {/* Header row: view toggle + year + print */}
+                  {/* Header row: view toggle + year dropdown + print */}
                   <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-                    <div className="flex items-center gap-1 rounded-xl border border-[#e5dede] bg-slate-50 p-1">
-                      <button
-                        type="button"
-                        onClick={() => setAnalyticsView("yearly")}
-                        className={`rounded-lg px-5 py-2 text-sm font-bold transition ${
-                          analyticsView === "yearly"
-                            ? "bg-[#9E1B34] text-white shadow-sm"
-                            : "text-slate-500 hover:text-slate-800"
-                        }`}
-                      >
-                        Yearly
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAnalyticsView("monthly")
-                          if (!selectedAnalyticsMonth && analyticsData) {
-                            const now = new Date()
-                            const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
-                            const match = analyticsData.months.find((m) => m.month === key)
-                            setSelectedAnalyticsMonth(match ? key : analyticsData.months[0].month)
-                          }
-                        }}
-                        className={`rounded-lg px-5 py-2 text-sm font-bold transition ${
-                          analyticsView === "monthly"
-                            ? "bg-[#9E1B34] text-white shadow-sm"
-                            : "text-slate-500 hover:text-slate-800"
-                        }`}
-                      >
-                        Monthly
-                      </button>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      {/* Year buttons — show data years or a sensible fallback range */}
-                      {(analyticsData?.availableYears ?? Array.from({ length: 3 }, (_, i) => new Date().getFullYear() - 2 + i).reverse()).map((y) => (
+                    <div className="flex flex-wrap items-center gap-3">
+                      {/* Yearly / Monthly toggle */}
+                      <div className="flex items-center gap-1 rounded-xl border border-[#e5dede] bg-slate-50 p-1">
                         <button
-                          key={y}
                           type="button"
-                          onClick={() => {
-                            setAnalyticsYear(y)
-                            setSelectedAnalyticsMonth(null)
-                          }}
-                          className={`rounded-lg border px-4 py-2 text-sm font-bold transition ${
-                            analyticsYear === y
-                              ? "border-[#9E1B34] bg-[#9E1B34] text-white"
-                              : "border-[#e5dede] bg-white text-slate-600 hover:bg-slate-50"
+                          onClick={() => setAnalyticsView("yearly")}
+                          className={`rounded-lg px-5 py-2 text-sm font-bold transition ${
+                            analyticsView === "yearly"
+                              ? "bg-[#9E1B34] text-white shadow-sm"
+                              : "text-slate-500 hover:text-slate-800"
                           }`}
                         >
-                          {y}
+                          Yearly
                         </button>
-                      ))}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAnalyticsView("monthly")
+                            if (!selectedAnalyticsMonth && analyticsData) {
+                              const now = new Date()
+                              const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+                              const match = analyticsData.months.find((m) => m.month === key)
+                              setSelectedAnalyticsMonth(match ? key : analyticsData.months[0].month)
+                            }
+                          }}
+                          className={`rounded-lg px-5 py-2 text-sm font-bold transition ${
+                            analyticsView === "monthly"
+                              ? "bg-[#9E1B34] text-white shadow-sm"
+                              : "text-slate-500 hover:text-slate-800"
+                          }`}
+                        >
+                          Monthly
+                        </button>
+                      </div>
 
-                      {/* Print button — context-aware */}
-                      {analyticsData && (
-                        analyticsView === "yearly" ? (
-                          <button
-                            type="button"
-                            onClick={printAnalyticsReport}
-                            className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                              <path fillRule="evenodd" d="M5 4v3H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2h1a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-1V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1Zm2 0h6v3H7V4Zm-1 9v-1h8v3H6v-2Zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" clipRule="evenodd" />
-                            </svg>
-                            Print Yearly Report
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={printMonthlyReport}
-                            disabled={!monthlyDetail}
-                            className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                              <path fillRule="evenodd" d="M5 4v3H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2h1a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-1V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1Zm2 0h6v3H7V4Zm-1 9v-1h8v3H6v-2Zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" clipRule="evenodd" />
-                            </svg>
-                            Print Monthly Report
-                          </button>
-                        )
-                      )}
+                      {/* Year dropdown — replaces the pill buttons */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Year</span>
+                        <select
+                          value={analyticsYear}
+                          onChange={(e) => {
+                            setAnalyticsYear(Number(e.target.value))
+                            setSelectedAnalyticsMonth(null)
+                          }}
+                          className="rounded-lg border border-[#e5dede] bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-[#9E1B34]/50 focus:ring-2 focus:ring-[#9E1B34]/10"
+                        >
+                          {(analyticsData?.availableYears ?? Array.from({ length: 3 }, (_, i) => new Date().getFullYear() - i)).map((y) => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
+
+                    {/* Print button — context-aware */}
+                    {analyticsData && (
+                      analyticsView === "yearly" ? (
+                        <button
+                          type="button"
+                          onClick={printAnalyticsReport}
+                          className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                            <path fillRule="evenodd" d="M5 4v3H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2h1a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-1V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1Zm2 0h6v3H7V4Zm-1 9v-1h8v3H6v-2Zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" clipRule="evenodd" />
+                          </svg>
+                          Print Yearly Report
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={printMonthlyReport}
+                          disabled={!monthlyDetail}
+                          className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                            <path fillRule="evenodd" d="M5 4v3H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2h1a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-1V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1Zm2 0h6v3H7V4Zm-1 9v-1h8v3H6v-2Zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" clipRule="evenodd" />
+                          </svg>
+                          Print Monthly Report
+                        </button>
+                      )
+                    )}
                   </div>
 
                   {analyticsLoading ? (
