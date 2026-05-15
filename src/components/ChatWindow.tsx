@@ -83,7 +83,8 @@ export default function ChatWindow({ messages, isLoading, error, supportRequestI
               </div>
             )}
         </div>
-      ))}
+        )
+      })}
 
       {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
         <LoadingIndicator />
