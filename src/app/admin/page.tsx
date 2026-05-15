@@ -618,6 +618,63 @@ export default function AdminConsolePage() {
     }
   }
 
+  // Shared CSS used by both print reports
+  const PRINT_CSS = `
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 12px; color: #1e293b; padding: 32px; }
+    h1 { font-size: 20px; font-weight: 700; color: #9E1B34; }
+    .meta { color: #64748b; font-size: 11px; margin-top: 4px; margin-bottom: 28px; }
+    .section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: #94a3b8; margin-bottom: 10px; margin-top: 28px; }
+    .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+    .card { border: 1px solid #e5dede; border-radius: 8px; padding: 12px 16px; min-width: 120px; }
+    .card-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: #94a3b8; }
+    .card-value { font-size: 28px; font-weight: 800; color: #9E1B34; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 8px 12px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: #64748b; border-top: 2px solid #e5dede; border-bottom: 1px solid #e5dede; background: #f8fafc; }
+    th:not(:first-child) { text-align: right; }
+    td { padding: 9px 12px; border-bottom: 1px solid #f0eaea; font-size: 12px; }
+    td:not(:first-child) { text-align: right; }
+    .tfoot-row td { font-weight: 700; border-top: 2px solid #e5dede; border-bottom: none; background: #f8fafc; font-size: 12px; }
+    .bar-wrap { height: 10px; background: #f1f5f9; border-radius: 99px; overflow: hidden; margin: 8px 0 16px; }
+    .bar-fill { height: 100%; border-radius: 99px; background: #059669; }
+    .feedback-table td:first-child { text-align: left; font-weight: 600; }
+    .not-helpful-list { margin-top: 12px; }
+    .not-helpful-item { border: 1px solid #fee2e2; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; background: #fff5f5; }
+    .not-helpful-date { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #f87171; margin-bottom: 4px; }
+    .not-helpful-q { font-weight: 600; font-size: 11px; margin-bottom: 3px; }
+    .not-helpful-a { font-size: 11px; color: #64748b; white-space: pre-wrap; }
+    .footer { margin-top: 32px; font-size: 10px; color: #94a3b8; border-top: 1px solid #e5dede; padding-top: 12px; }
+    @media print { body { padding: 16px; } }
+  `
+
+  // Builds the feedback HTML block; filteredRecent = not-helpful entries scoped to report period
+  function buildFeedbackSection(filteredRecent: Array<{ id: number; question: string; answer: string; createdAt: string }>) {
+    if (!feedbackStats) return ""
+    const { helpful, notHelpful, total } = feedbackStats.totals
+    const satisfactionPct = total > 0 ? Math.round((helpful / total) * 100) : 0
+    const notHelpfulRows = filteredRecent.map((item) => `
+      <div class="not-helpful-item">
+        <div class="not-helpful-date">${new Date(item.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
+        <div class="not-helpful-q">Q: ${item.question}</div>
+        <div class="not-helpful-a">A: ${item.answer.slice(0, 300)}${item.answer.length > 300 ? "…" : ""}</div>
+      </div>`).join("")
+
+    return `
+  <p class="section-label">Chatbot Response Feedback — All Time</p>
+  <div class="cards">
+    <div class="card"><div class="card-label">Helpful</div><div class="card-value" style="color:#059669">${helpful}</div></div>
+    <div class="card"><div class="card-label">Not Helpful</div><div class="card-value" style="color:#dc2626">${notHelpful}</div></div>
+    <div class="card"><div class="card-label">Total Rated</div><div class="card-value">${total}</div></div>
+    <div class="card"><div class="card-label">Satisfaction</div><div class="card-value">${satisfactionPct}%</div></div>
+  </div>
+  ${total > 0 ? `<div class="bar-wrap"><div class="bar-fill" style="width:${satisfactionPct}%"></div></div>` : ""}
+  ${filteredRecent.length > 0 ? `
+  <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;color:#94a3b8;margin-bottom:8px">
+    Not-Helpful Responses ${filteredRecent.length < feedbackStats.recent.length ? "(this period)" : "(recent)"}
+  </p>
+  <div class="not-helpful-list">${notHelpfulRows}</div>` : total > 0 ? `<p style="font-size:11px;color:#94a3b8;margin-bottom:16px">No not-helpful responses recorded for this period.</p>` : `<p style="font-size:11px;color:#94a3b8;margin-bottom:16px">No feedback submitted yet.</p>`}`
+  }
+
   function printAnalyticsReport() {
     if (!analyticsData) return
     const { year, months, totals } = analyticsData
@@ -636,30 +693,17 @@ export default function AdminConsolePage() {
       </tr>`
     }).join("")
 
+    // Filter not-helpful responses to this year
+    const yearRecent = (feedbackStats?.recent ?? []).filter(
+      (item) => new Date(item.createdAt).getFullYear() === year
+    )
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <title>BYU-Hawaii Financial Aid — Analytics ${year}</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, sans-serif; font-size: 12px; color: #1e293b; padding: 32px; }
-    h1 { font-size: 20px; font-weight: 700; color: #9E1B34; }
-    .meta { color: #64748b; font-size: 11px; margin-top: 4px; margin-bottom: 28px; }
-    .section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: #94a3b8; margin-bottom: 10px; }
-    .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 32px; }
-    .card { border: 1px solid #e5dede; border-radius: 8px; padding: 12px 16px; min-width: 130px; }
-    .card-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: #94a3b8; }
-    .card-value { font-size: 28px; font-weight: 800; color: #9E1B34; margin-top: 4px; }
-    table { width: 100%; border-collapse: collapse; }
-    th { text-align: left; padding: 8px 12px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: #64748b; border-top: 2px solid #e5dede; border-bottom: 1px solid #e5dede; background: #f8fafc; }
-    th:not(:first-child) { text-align: right; }
-    td { padding: 9px 12px; border-bottom: 1px solid #f0eaea; font-size: 12px; }
-    td:not(:first-child) { text-align: right; }
-    .tfoot-row td { font-weight: 700; border-top: 2px solid #e5dede; border-bottom: none; background: #f8fafc; font-size: 12px; }
-    .footer { margin-top: 32px; font-size: 10px; color: #94a3b8; border-top: 1px solid #e5dede; padding-top: 12px; }
-    @media print { body { padding: 16px; } }
-  </style>
+  <style>${PRINT_CSS}</style>
 </head>
 <body>
   <h1>BYU-Hawaii Financial Aid &amp; Scholarships</h1>
@@ -679,40 +723,28 @@ export default function AdminConsolePage() {
   <table>
     <thead>
       <tr>
-        <th>Month</th>
-        <th>Conversations</th>
-        <th>Questions</th>
-        <th>High Confidence</th>
-        <th>Low Confidence</th>
-        <th>High %</th>
-        <th>Escalations</th>
+        <th>Month</th><th>Conversations</th><th>Questions</th>
+        <th>High Confidence</th><th>Low Confidence</th><th>High %</th><th>Escalations</th>
       </tr>
     </thead>
     <tbody>${monthRows}</tbody>
     <tfoot>
       <tr class="tfoot-row">
-        <td>Year Total</td>
-        <td>${totals.conversations}</td>
-        <td>${totals.questions}</td>
-        <td style="color:#059669">${totals.high}</td>
-        <td style="color:#d97706">${totals.low}</td>
-        <td>${highPct}%</td>
-        <td style="color:#dc2626">${totals.escalations}</td>
+        <td>Year Total</td><td>${totals.conversations}</td><td>${totals.questions}</td>
+        <td style="color:#059669">${totals.high}</td><td style="color:#d97706">${totals.low}</td>
+        <td>${highPct}%</td><td style="color:#dc2626">${totals.escalations}</td>
       </tr>
     </tfoot>
   </table>
+
+  ${buildFeedbackSection(yearRecent)}
 
   <p class="footer">BYU-Hawaii Financial Aid &amp; Scholarships &nbsp;·&nbsp; (808) 675-3316 &nbsp;·&nbsp; financialaid@byuh.edu &nbsp;·&nbsp; Lorenzo Snow Building Room 180</p>
 </body>
 </html>`
 
     const win = window.open("", "_blank", "width=960,height=720")
-    if (win) {
-      win.document.write(html)
-      win.document.close()
-      win.focus()
-      win.print()
-    }
+    if (win) { win.document.write(html); win.document.close(); win.focus(); win.print() }
   }
 
   function printMonthlyReport() {
@@ -734,30 +766,18 @@ export default function AdminConsolePage() {
       </tr>`
     }).join("") || `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:24px">No activity recorded this month.</td></tr>`
 
+    // Filter not-helpful responses to this month (selectedAnalyticsMonth is "YYYY-MM")
+    const monthPrefix = selectedAnalyticsMonth ?? ""
+    const monthRecent = (feedbackStats?.recent ?? []).filter(
+      (item) => item.createdAt.startsWith(monthPrefix)
+    )
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <title>BYU-Hawaii Financial Aid — ${label} Report</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, sans-serif; font-size: 12px; color: #1e293b; padding: 32px; }
-    h1 { font-size: 20px; font-weight: 700; color: #9E1B34; }
-    .meta { color: #64748b; font-size: 11px; margin-top: 4px; margin-bottom: 28px; }
-    .section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: #94a3b8; margin-bottom: 10px; }
-    .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 32px; }
-    .card { border: 1px solid #e5dede; border-radius: 8px; padding: 12px 16px; min-width: 120px; }
-    .card-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: #94a3b8; }
-    .card-value { font-size: 28px; font-weight: 800; color: #9E1B34; margin-top: 4px; }
-    table { width: 100%; border-collapse: collapse; }
-    th { text-align: left; padding: 8px 12px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: #64748b; border-top: 2px solid #e5dede; border-bottom: 1px solid #e5dede; background: #f8fafc; }
-    th:not(:first-child) { text-align: right; }
-    td { padding: 9px 12px; border-bottom: 1px solid #f0eaea; font-size: 12px; }
-    td:not(:first-child) { text-align: right; }
-    .tfoot-row td { font-weight: 700; border-top: 2px solid #e5dede; border-bottom: none; background: #f8fafc; }
-    .footer { margin-top: 32px; font-size: 10px; color: #94a3b8; border-top: 1px solid #e5dede; padding-top: 12px; }
-    @media print { body { padding: 16px; } }
-  </style>
+  <style>${PRINT_CSS}</style>
 </head>
 <body>
   <h1>BYU-Hawaii Financial Aid &amp; Scholarships</h1>
@@ -777,40 +797,28 @@ export default function AdminConsolePage() {
   <table>
     <thead>
       <tr>
-        <th>Day</th>
-        <th>Conversations</th>
-        <th>Questions</th>
-        <th>High Confidence</th>
-        <th>Low Confidence</th>
-        <th>High %</th>
-        <th>Escalations</th>
+        <th>Day</th><th>Conversations</th><th>Questions</th>
+        <th>High Confidence</th><th>Low Confidence</th><th>High %</th><th>Escalations</th>
       </tr>
     </thead>
     <tbody>${dayRows}</tbody>
     <tfoot>
       <tr class="tfoot-row">
-        <td>Month Total</td>
-        <td>${totals.conversations}</td>
-        <td>${totals.questions}</td>
-        <td style="color:#059669">${totals.high}</td>
-        <td style="color:#d97706">${totals.low}</td>
-        <td>${highPct}%</td>
-        <td style="color:#dc2626">${totals.escalations}</td>
+        <td>Month Total</td><td>${totals.conversations}</td><td>${totals.questions}</td>
+        <td style="color:#059669">${totals.high}</td><td style="color:#d97706">${totals.low}</td>
+        <td>${highPct}%</td><td style="color:#dc2626">${totals.escalations}</td>
       </tr>
     </tfoot>
   </table>
+
+  ${buildFeedbackSection(monthRecent)}
 
   <p class="footer">BYU-Hawaii Financial Aid &amp; Scholarships &nbsp;·&nbsp; (808) 675-3316 &nbsp;·&nbsp; financialaid@byuh.edu &nbsp;·&nbsp; Lorenzo Snow Building Room 180</p>
 </body>
 </html>`
 
     const win = window.open("", "_blank", "width=960,height=720")
-    if (win) {
-      win.document.write(html)
-      win.document.close()
-      win.focus()
-      win.print()
-    }
+    if (win) { win.document.write(html); win.document.close(); win.focus(); win.print() }
   }
 
   function openRecentRequest(request: SupportRequest) {
