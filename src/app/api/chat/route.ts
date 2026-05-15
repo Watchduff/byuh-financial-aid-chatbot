@@ -251,8 +251,8 @@ const OUT_OF_SCOPE_PATTERNS: RegExp[] = [
   /\b(write\s+(me\s+)?(an?\s+)?(essay|email|e-mail|letter|appeal|personal\s+statement|cover\s+letter|template|draft|message|paragraph|summary)|draft\s+(an?\s+)?(email|letter|appeal|essay|message)|compose\s+(an?\s+)?(email|letter|message)|help\s+me\s+write|write\s+a\s+sample|give\s+me\s+a\s+(template|sample|draft|example)\s+(email|letter|essay))\b/i,
   // Coding / programming topics
   /\b(python|javascript|typescript|java\b|ruby\b|php\b|golang|c\+\+|html\b|css\b|react\b|angular|vue\.?js|node\.?js|algorithm|recursion|debug(ging)?|compile[dr]?|git\s+(push|pull|commit|merge|clone)|npm\s+install|pip\s+install|write\s+(a\s+)?(function|program|script|class|loop)|code\s+snippet)\b/i,
-  // Weather queries
-  /\b(weather\s+(in|at|for|today|tomorrow|forecast)|will\s+it\s+rain|is\s+it\s+(sunny|cloudy|snowing|hot|cold)\s+(today|tomorrow|outside)|temperature\s+(in|at|today|tomorrow))\b/i,
+  // Weather queries — catches "do you know the weather", "what's the weather", "is it raining", etc.
+  /\b(weather|forecast|raining|gonna\s+rain|will\s+it\s+rain|is\s+it\s+(sunny|cloudy|snowing|hot|cold|raining)|temperature\s+today|how\s+(hot|cold)\s+is\s+it)\b/i,
   // Joke requests
   /\b(tell\s+(me\s+)?(a\s+)?joke|give\s+me\s+a\s+joke|funny\s+joke|make\s+me\s+laugh|say\s+something\s+funny)\b/i,
   // Sports & entertainment
