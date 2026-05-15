@@ -12,6 +12,7 @@ type Props = {
   error: Error | null
   supportRequestId: string | null
   adminTyping: boolean
+  conversationId: string | null
   onSpeakToHuman: () => void
   onFollowUp: (question: string) => void
   uiText: UIText
@@ -27,7 +28,7 @@ function TypingDots() {
   )
 }
 
-export default function ChatWindow({ messages, isLoading, error, supportRequestId, adminTyping, onSpeakToHuman, onFollowUp, uiText }: Props) {
+export default function ChatWindow({ messages, isLoading, error, supportRequestId, adminTyping, conversationId, onSpeakToHuman, onFollowUp, uiText }: Props) {
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -48,7 +49,11 @@ export default function ChatWindow({ messages, isLoading, error, supportRequestI
         </div>
       )}
 
-      {messages.map((msg, i) => (
+      {messages.map((msg, i) => {
+        const precedingQuestion = msg.role === "assistant"
+          ? messages.slice(0, i).findLast((m) => m.role === "user")?.content
+          : undefined
+        return (
         <div key={`${msg.id}-${i}`}>
           <MessageBubble
             role={msg.role as "user" | "assistant" | "agent"}
@@ -56,6 +61,8 @@ export default function ChatWindow({ messages, isLoading, error, supportRequestI
             mode={msg.mode}
             sources={msg.sources}
             agentName={msg.agentName}
+            precedingQuestion={precedingQuestion}
+            conversationId={conversationId}
             onFollowUp={onFollowUp}
             uiText={uiText}
           />

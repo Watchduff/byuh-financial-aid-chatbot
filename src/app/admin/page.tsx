@@ -214,6 +214,7 @@ export default function AdminConsolePage() {
   const [selectedAnalyticsMonth, setSelectedAnalyticsMonth] = useState<string | null>(null)
   const [monthlyDetail, setMonthlyDetail] = useState<MonthlyDetail | null>(null)
   const [monthlyDetailLoading, setMonthlyDetailLoading] = useState(false)
+  const [feedbackStats, setFeedbackStats] = useState<{ totals: { helpful: number; notHelpful: number; total: number }; recent: Array<{ id: number; question: string; answer: string; createdAt: string }> } | null>(null)
 
   const fetchRequests = useCallback(async () => {
     setError("")
@@ -243,10 +244,12 @@ export default function AdminConsolePage() {
   const fetchAnalytics = useCallback(async (year: number) => {
     setAnalyticsLoading(true)
     try {
-      const res = await fetch(`/api/analytics/monthly?year=${year}`)
-      if (!res.ok) throw new Error()
-      const data = await res.json()
-      setAnalyticsData(data)
+      const [analyticsRes, feedbackRes] = await Promise.all([
+        fetch(`/api/analytics/monthly?year=${year}`),
+        fetch("/api/feedback"),
+      ])
+      if (analyticsRes.ok) setAnalyticsData(await analyticsRes.json())
+      if (feedbackRes.ok) setFeedbackStats(await feedbackRes.json())
     } catch {
       // silently fail
     } finally {
@@ -1360,6 +1363,68 @@ export default function AdminConsolePage() {
                     )
                   ) : (
                     <p className="py-10 text-center text-sm text-slate-400">No analytics data available.</p>
+                  )}
+                </section>
+
+                {/* Chatbot Response Feedback */}
+                <section className="rounded-lg border border-[#d8e0e8] bg-white px-6 py-6 shadow-sm">
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Chatbot Response Feedback</p>
+                  <p className="mb-5 text-xs text-slate-500">Student ratings on chatbot responses — all time</p>
+
+                  {feedbackStats ? (
+                    <>
+                      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+                        {[
+                          { label: "Helpful", value: feedbackStats.totals.helpful, color: "text-emerald-700" },
+                          { label: "Not Helpful", value: feedbackStats.totals.notHelpful, color: "text-red-600" },
+                          { label: "Total Rated", value: feedbackStats.totals.total, color: "text-[#9E1B34]" },
+                        ].map((item) => (
+                          <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-4 py-4">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                            <p className={`mt-1 text-2xl font-bold ${item.color}`}>{item.value}</p>
+                            {feedbackStats.totals.total > 0 && (
+                              <p className="mt-0.5 text-xs text-slate-400">
+                                {Math.round((item.value / feedbackStats.totals.total) * 100)}%
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {feedbackStats.totals.total > 0 && (
+                        <div className="mb-5 h-3 w-full overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full bg-emerald-500 transition-all"
+                            style={{ width: `${Math.round((feedbackStats.totals.helpful / feedbackStats.totals.total) * 100)}%` }}
+                          />
+                        </div>
+                      )}
+
+                      {feedbackStats.recent.length > 0 && (
+                        <>
+                          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                            Recent Not-Helpful Responses
+                          </p>
+                          <div className="space-y-3">
+                            {feedbackStats.recent.map((item) => (
+                              <div key={item.id} className="rounded-lg border border-red-100 bg-red-50 px-4 py-3">
+                                <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-400">
+                                  {new Date(item.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                </p>
+                                <p className="text-xs font-semibold text-slate-600">Q: {item.question}</p>
+                                <p className="mt-1 line-clamp-2 text-xs text-slate-500">A: {item.answer}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      {feedbackStats.totals.total === 0 && (
+                        <p className="py-6 text-center text-sm text-slate-400">No feedback submitted yet.</p>
+                      )}
+                    </>
+                  ) : (
+                    <p className="py-6 text-center text-sm text-slate-400">Loading feedback data...</p>
                   )}
                 </section>
               </div>

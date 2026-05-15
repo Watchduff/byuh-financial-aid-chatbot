@@ -105,6 +105,17 @@ async function migrate() {
     )
   `
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS message_feedback (
+      id SERIAL PRIMARY KEY,
+      conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      feedback TEXT NOT NULL CHECK (feedback IN ('helpful', 'not-helpful')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
+
   console.log("All migrations complete!")
 }
 

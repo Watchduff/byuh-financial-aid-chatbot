@@ -104,6 +104,19 @@ export const agentMessages = pgTable("agent_messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })
 
+// message_feedback — helpful / not-helpful votes on chatbot responses
+export const messageFeedback = pgTable("message_feedback", {
+  id: serial("id").primaryKey(),
+  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  question: text("question").notNull(),
+  answer: text("answer").notNull(),
+  feedback: text("feedback").$type<"helpful" | "not-helpful">().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+})
+
+export type MessageFeedback = typeof messageFeedback.$inferSelect
+export type NewMessageFeedback = typeof messageFeedback.$inferInsert
+
 export type Page = typeof pages.$inferSelect
 export type NewPage = typeof pages.$inferInsert
 export type Chunk = typeof chunks.$inferSelect

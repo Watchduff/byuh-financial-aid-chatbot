@@ -734,6 +734,7 @@ export default function Page() {
                     error={error ?? null}
                     supportRequestId={supportRequestId}
                     adminTyping={adminTyping}
+                    conversationId={activeConversationId}
                     onSpeakToHuman={() => handleSpeakToHuman()}
                     onFollowUp={(question) => void sendQuestion(question)}
                     uiText={uiText}

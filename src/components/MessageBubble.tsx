@@ -11,6 +11,8 @@ type Props = {
   mode?: "grounded" | "demo" | "unavailable" | "handoff" | "session-ended"
   sources?: string[]
   agentName?: string
+  precedingQuestion?: string
+  conversationId?: string | null
   onFollowUp?: (question: string) => void
   uiText: UIText
 }
@@ -83,9 +85,24 @@ function GroundingLabel({ mode, hasSources, uiText }: { mode?: Props["mode"]; ha
   )
 }
 
-export default function MessageBubble({ role, content, mode, sources, agentName, onFollowUp, uiText }: Props) {
+export default function MessageBubble({ role, content, mode, sources, agentName, precedingQuestion, conversationId, onFollowUp, uiText }: Props) {
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<"helpful" | "not-helpful" | null>(null)
+
+  async function handleFeedback(value: "helpful" | "not-helpful") {
+    if (feedback) return
+    setFeedback(value)
+    await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationId: conversationId ?? undefined,
+        question: precedingQuestion ?? "",
+        answer: content,
+        feedback: value,
+      }),
+    }).catch(() => undefined)
+  }
   const isUser = role === "user"
   const isAgent = role === "agent"
   const followUps = useMemo(
@@ -219,8 +236,9 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
           <button
             type="button"
-            onClick={() => setFeedback("helpful")}
-            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${
+            onClick={() => void handleFeedback("helpful")}
+            disabled={feedback !== null}
+            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold transition disabled:cursor-default ${
               feedback === "helpful"
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                 : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
@@ -230,8 +248,9 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
           </button>
           <button
             type="button"
-            onClick={() => setFeedback("not-helpful")}
-            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${
+            onClick={() => void handleFeedback("not-helpful")}
+            disabled={feedback !== null}
+            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold transition disabled:cursor-default ${
               feedback === "not-helpful"
                 ? "border-amber-200 bg-amber-50 text-amber-700"
                 : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
