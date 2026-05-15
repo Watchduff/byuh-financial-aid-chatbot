@@ -40,7 +40,7 @@ type ChatHistoryEntry = {
   questionAt: string
   answer: string
   answerAt: string | null
-  confidence: "high" | "low"
+  confidence: "high" | "low" | null
   confidenceScore: number | null
   mode: string | null
   sources: string[]
@@ -378,7 +378,7 @@ export default function AdminConsolePage() {
         entry.conversationTitle,
         entry.question,
         entry.answer,
-        entry.confidence,
+        entry.confidence ?? "",
         ...entry.sources,
       ].some((value) => value.toLowerCase().includes(query))
     )
@@ -1659,15 +1659,21 @@ export default function AdminConsolePage() {
                                     <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
                                       Chatbot - {entry.answerAt ? formatDate(entry.answerAt) : "No response saved"}
                                     </span>
-                                    <span
-                                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                                        entry.confidence === "high"
-                                          ? "bg-emerald-100 text-emerald-800"
-                                          : "bg-amber-100 text-amber-800"
-                                      }`}
-                                    >
-                                      {entry.confidence === "high" ? "High confidence" : "Low confidence"}
-                                    </span>
+                                    {entry.confidence !== null ? (
+                                      <span
+                                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                          entry.confidence === "high"
+                                            ? "bg-emerald-100 text-emerald-800"
+                                            : "bg-amber-100 text-amber-800"
+                                        }`}
+                                      >
+                                        {entry.confidence === "high" ? "High confidence" : "Low confidence"}
+                                      </span>
+                                    ) : (
+                                      <span className="rounded-full px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-500">
+                                        Greeting
+                                      </span>
+                                    )}
                                     {entry.confidenceScore !== null && (
                                       <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-slate-500">
                                         {entry.confidenceScore}%

@@ -13,9 +13,10 @@ import { getOrCreateSession } from "@/lib/session"
 //
 //   "grounded"   — answer came from the real RAG pipeline (DB + OpenAI)
 //   "demo"       — answer came from hardcoded demo data (no live KB access)
-//   "unavailable"— KB is empty/unreachable AND no demo answer matched
+//   "unavailable"  — KB is empty/unreachable AND no demo answer matched
+//   "conversational"— greeting / acknowledgement / opener — no RAG involved
 // ---------------------------------------------------------------------------
-export type ResponseMode = "grounded" | "demo" | "unavailable"
+export type ResponseMode = "grounded" | "demo" | "unavailable" | "conversational"
 type SentimentLabel = "neutral" | "confused" | "frustrated" | "urgent"
 
 async function proxyToFastApi(body: Record<string, unknown>): Promise<NextResponse | null> {
@@ -674,10 +675,10 @@ export async function POST(req: Request) {
     if (openerResponse) {
       console.log("[chat] Conversational opener detected — responding contextually")
       return NextResponse.json({
-        mode: "grounded" as ResponseMode,
+        mode: "conversational" as ResponseMode,
         message: await localizeResponse(openerResponse, language),
-        confidence: "high",
-        confidenceScore: 100,
+        confidence: null,
+        confidenceScore: null,
         sources: [],
         sentiment: currentSentiment,
       })

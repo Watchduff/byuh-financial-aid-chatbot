@@ -17,16 +17,18 @@ function parseSources(value: string | null) {
   }
 }
 
-function inferConfidence(message: MessageRow | undefined) {
-  if (!message) return "low" as const
+function inferConfidence(message: MessageRow | undefined): "high" | "low" | null {
+  if (!message) return "low"
+  // Conversational openers (greetings, thanks, etc.) have no RAG confidence
+  if (message.responseMode === "conversational") return null
   if (message.responseConfidence === "high" || message.responseConfidence === "low") {
     return message.responseConfidence
   }
-  if (message.responseMode === "unavailable") return "low" as const
+  if (message.responseMode === "unavailable") return "low"
   if (/not finding a clear answer|don't have that specific detail|could not access a reliable|not able to pull up/i.test(message.content)) {
-    return "low" as const
+    return "low"
   }
-  return "high" as const
+  return "high"
 }
 
 export async function GET() {
