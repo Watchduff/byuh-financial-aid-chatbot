@@ -192,6 +192,7 @@ export default function AdminConsolePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [requests, setRequests] = useState<SupportRequest[]>([])
   const [chatHistory, setChatHistory] = useState<ChatHistoryEntry[]>([])
+  const [historyAgentReplies, setHistoryAgentReplies] = useState<Record<string, Array<{ id: string; agentName: string; content: string; createdAt: string }>>>({})
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const [replies, setReplies] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -236,6 +237,7 @@ export default function AdminConsolePage() {
       if (!res.ok) throw new Error(`Request failed: ${res.status}`)
       const data = await res.json()
       setChatHistory(data.history ?? [])
+      setHistoryAgentReplies(data.agentReplies ?? {})
     } catch {
       setError("Could not load chat history.")
     }
@@ -1688,6 +1690,28 @@ export default function AdminConsolePage() {
                               </div>
                             </div>
                           ))}
+
+                          {(historyAgentReplies[selectedHistoryConversation.conversationId] ?? []).length > 0 && (
+                            <div className="mt-2 space-y-3">
+                              <div className="flex items-center gap-3">
+                                <div className="h-px flex-1 bg-slate-200" />
+                                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-600">
+                                  Live Support Session
+                                </span>
+                                <div className="h-px flex-1 bg-slate-200" />
+                              </div>
+                              {historyAgentReplies[selectedHistoryConversation.conversationId].map((reply) => (
+                                <div key={reply.id} className="flex justify-start">
+                                  <div className="max-w-[76%] rounded-lg border border-blue-200 bg-blue-50 px-5 py-4 shadow-sm">
+                                    <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-500">
+                                      {reply.agentName} &mdash; {formatDate(reply.createdAt)}
+                                    </div>
+                                    <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">{reply.content}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ) : (

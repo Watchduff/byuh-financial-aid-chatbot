@@ -1,6 +1,6 @@
 import { asc, desc, eq } from "drizzle-orm"
 import { db } from "@/db/index"
-import { chatMessages, conversations } from "@/db/schema"
+import { agentMessages, chatMessages, conversations, supportRequests } from "@/db/schema"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -9,10 +9,9 @@ type MessageRow = typeof chatMessages.$inferSelect
 
 function parseSources(value: string | null) {
   if (!value) return []
-
   try {
     const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed.filter((source) => typeof source === "string") : []
+    return Array.isArray(parsed) ? parsed.filter((s) => typeof s === "string") : []
   } catch {
     return []
   }
@@ -70,10 +69,51 @@ export async function GET() {
       })
     )
 
+    // Fetch advisor (agent) replies grouped by conversationId
+    const supportRequestRows = await db
+      .select()
+      .from(supportRequests)
+      .orderBy(asc(supportRequests.createdAt))
+
+    const agentRepliesByConversation: Record<string, Array<{
+      id: string
+      agentName: string
+      content: string
+      createdAt: string
+    }>> = {}
+
+    await Promise.all(
+      supportRequestRows
+        .filter((r) => r.conversationId)
+        .map(async (request) => {
+          const replies = await db
+            .select()
+            .from(agentMessages)
+            .where(eq(agentMessages.supportRequestId, request.id))
+            .orderBy(asc(agentMessages.createdAt))
+
+          if (replies.length > 0 && request.conversationId) {
+            const convId = request.conversationId
+            if (!agentRepliesByConversation[convId]) {
+              agentRepliesByConversation[convId] = []
+            }
+            for (const reply of replies) {
+              agentRepliesByConversation[convId].push({
+                id: reply.id,
+                agentName: reply.agentName,
+                content: reply.content,
+                createdAt: reply.createdAt.toISOString(),
+              })
+            }
+          }
+        })
+    )
+
     return Response.json({
       history: entries
         .flat()
         .sort((a, b) => new Date(b.questionAt).getTime() - new Date(a.questionAt).getTime()),
+      agentReplies: agentRepliesByConversation,
     })
   } catch (error) {
     console.error("[support/chat-history] Error:", error)
