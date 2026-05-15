@@ -71,11 +71,13 @@ function detectSentiment(message: string): { label: SentimentLabel; score: numbe
   return sentiment("neutral", 0.2)
 }
 
-// Maximum cosine distance (0–1) allowed for a retrieved chunk to be treated
-// as relevant. pgvector's <=> operator returns cosine distance where
-// 0 = identical vectors and 1 = orthogonal. Chunks whose best-match distance
-// exceeds this threshold are considered off-topic.
+// Cosine distance thresholds (pgvector's <=> operator: 0 = identical, 1 = orthogonal).
+//
+//  < RELEVANCE_THRESHOLD  → confident match, generate grounded response
+//  ≥ RELEVANCE_THRESHOLD  → low confidence, return soft "not in my info" fallback
+//  ≥ OFF_TOPIC_THRESHOLD  → clearly unrelated to financial aid, return out-of-scope
 const RELEVANCE_THRESHOLD = 0.72
+const OFF_TOPIC_THRESHOLD = 0.88
 
 // ---------------------------------------------------------------------------
 // System prompt — only used for real grounded responses
@@ -306,6 +308,20 @@ const OUT_OF_SCOPE_PATTERNS: RegExp[] = [
   /\b(capital\s+of\s+[a-z]+|population\s+of\s+[a-z]+|who\s+(is|was)\s+the\s+(president|prime\s+minister|ceo|inventor|founder)\s+of|what\s+country\s+is|recipe\s+for|how\s+to\s+cook|convert\s+\w+\s+to\s+\w+)\b/i,
   // Date / time queries — "what day is today", "what time is it", "what's the date"
   /\b(what\s+(day|time|date|year|month)\s+(is\s+)?(it|today|now|currently)|what'?s\s+(today'?s?\s+)?(date|day|time)|current\s+(time|date|day)|today'?s?\s+date|what\s+is\s+today)\b/i,
+  // Opinion / personal preference questions directed at the bot
+  /\b(do\s+you\s+(think|believe|feel|like|love|hate|prefer|agree|disagree|know\s+if)|what\s+do\s+you\s+(think|believe|feel|recommend\s+about)|in\s+your\s+opinion|what('?s|\s+is)\s+your\s+(opinion|view|take|thought)\b)/i,
+  // Fitness, health, lifestyle — "muscular", "workout", "diet", "lose weight", etc.
+  /\b(muscular|muscle|workout|exercise|gym|fitness|diet|lose\s+weight|calories|nutrition|healthy\s+eating|body\s+fat|protein|supplements?)\b/i,
+  // Relationship / social questions
+  /\b(boyfriend|girlfriend|relationship|dating|love\s+life|marriage|divorce|breakup|crush|romantic)\b/i,
+  // General "is it good/great/bad to be/do X" opinion fishing
+  /\b(is\s+it\s+(good|great|bad|cool|nice|fun|worth\s+it)\s+to\s+be|do\s+you\s+think\s+its?\s+(good|great|bad|cool|nice|fun))\b/i,
+  // AI / chatbot self-reflection questions
+  /\b(are\s+you\s+(a\s+)?(real|human|ai|robot|chat\s*bot|gpt|smart)|who\s+(made|built|created|trained)\s+you|what\s+(are|is)\s+you|do\s+you\s+have\s+feelings|can\s+you\s+feel|are\s+you\s+sentient)\b/i,
+  // Food, cooking, and recipes
+  /\b(recipe|how\s+to\s+cook|what\s+(to\s+)?eat|food\s+recommendation|best\s+restaurant|where\s+to\s+eat|cooking\s+tip)\b/i,
+  // Travel and geography unrelated to BYUH
+  /\b(best\s+place\s+to\s+(visit|travel|go)|travel\s+(tip|recommendation|advice)|tourist\s+(spot|attraction)|how\s+to\s+get\s+to\s+(?!byuh|byu.hawaii))\b/i,
 ]
 
 // Polite refusal message returned for all out-of-scope requests
@@ -577,9 +593,10 @@ type ContextRow = {
 
 type RetrievalResult = {
   rows: ContextRow[]
-  /** True when the top result is close enough to the query to be trusted */
   confident: boolean
   confidenceScore: number
+  /** Raw best cosine distance — used to detect completely off-topic queries */
+  bestDistance: number
 }
 
 async function retrieveChunks(message: string): Promise<RetrievalResult> {
@@ -612,6 +629,7 @@ async function retrieveChunks(message: string): Promise<RetrievalResult> {
         rows: rows.map(({ content, url, title }) => ({ content, url, title })),
         confident,
         confidenceScore: Math.max(0, Math.min(100, Math.round((1 - bestDistance) * 100))),
+        bestDistance,
       }
     }
   } catch (err) {
@@ -626,7 +644,7 @@ async function retrieveChunks(message: string): Promise<RetrievalResult> {
     .filter((t) => t.length > 2)
     .slice(0, 8)
 
-  if (terms.length === 0) return { rows: [], confident: false, confidenceScore: 0 }
+  if (terms.length === 0) return { rows: [], confident: false, confidenceScore: 0, bestDistance: 1 }
 
   const rows = await db
     .select({ content: chunks.content, url: pages.url, title: pages.title })
@@ -636,8 +654,7 @@ async function retrieveChunks(message: string): Promise<RetrievalResult> {
     .limit(6)
 
   console.log(`[chat] Keyword search: ${rows.length} chunks`)
-  // Require at least 2 matching chunks before treating the result as confident
-  return { rows, confident: rows.length >= 2, confidenceScore: rows.length >= 2 ? 65 : rows.length > 0 ? 35 : 0 }
+  return { rows, confident: rows.length >= 2, confidenceScore: rows.length >= 2 ? 65 : rows.length > 0 ? 35 : 0, bestDistance: rows.length >= 2 ? 0.65 : 1 }
 }
 
 // ---------------------------------------------------------------------------
@@ -734,7 +751,7 @@ export async function POST(req: Request) {
       return buildFallbackResponse(message, language)
     }
 
-    const { rows, confident, confidenceScore } = result
+    const { rows, confident, confidenceScore, bestDistance } = result
 
     // Step 3: Empty KB — no ingested data yet
     if (rows.length === 0) {
@@ -742,15 +759,28 @@ export async function POST(req: Request) {
       return buildFallbackResponse(message, language)
     }
 
-    // Step 4: Retrieval confidence guard — chunks exist but are too dissimilar to
-    // the query to be trusted. Return a safe "can't find it" response instead of
-    // hallucinating an answer from weakly-matched context.
+    // Step 4a: Definitely off-topic — cosine distance so high that no financial aid
+    // content is anywhere near this query. Redirect cleanly rather than hedging.
+    if (bestDistance >= OFF_TOPIC_THRESHOLD) {
+      console.log(`[chat] Off-topic query (distance ${bestDistance.toFixed(3)}) — returning out-of-scope response`)
+      return NextResponse.json({
+        mode: "grounded" as ResponseMode,
+        message: await localizeResponse(OUT_OF_SCOPE_RESPONSE, language),
+        confidence: "low",
+        confidenceScore: 0,
+        sources: [],
+        sentiment: currentSentiment,
+      })
+    }
+
+    // Step 4b: Retrieval confidence guard — chunks exist but are too dissimilar to
+    // be trusted. Return a safe "not in my info" response without hallucinating.
     if (!confident) {
       console.log("[chat] Low retrieval confidence — returning safe fallback")
       const lowConfidenceMessage =
-        "That's a great question, but I'm not finding a clear answer in my current information. " +
-        "For the most accurate help, I'd recommend reaching out to the **Financial Aid office** directly or visiting [financialaid.byuh.edu](https://financialaid.byuh.edu/) — they'll know for sure. " +
-        "In the meantime, feel free to ask me about **scholarships, FAFSA, tuition costs, deadlines, required documents, or the iWork program** and I'll do my best to help!"
+        "I don't have that specific detail in my current information. " +
+        "For the most accurate answer, reach out to the **Financial Aid office** directly or visit [financialaid.byuh.edu](https://financialaid.byuh.edu/) — they'll be able to help you right away. " +
+        "In the meantime, feel free to ask me about **scholarships, FAFSA, tuition costs, deadlines, required documents, or the iWork program**!"
 
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
