@@ -248,7 +248,7 @@ export default function Page() {
           nextMessages.push({
             id: crypto.randomUUID(),
             role: "assistant",
-            mode: "handoff",
+            mode: "session-ended",
             content: terminalNotice,
             sources: [],
           })

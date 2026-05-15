@@ -4,7 +4,7 @@ export type UIMessage = {
   id: string
   role: "user" | "assistant" | "agent"
   content: string
-  mode?: "grounded" | "demo" | "unavailable" | "handoff"
+  mode?: "grounded" | "demo" | "unavailable" | "handoff" | "session-ended"
   confidence?: "high" | "low"
   confidenceScore?: number
   sources?: string[]
