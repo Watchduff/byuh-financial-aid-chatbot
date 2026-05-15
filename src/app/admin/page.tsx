@@ -205,7 +205,7 @@ export default function AdminConsolePage() {
   const [suggestingId, setSuggestingId] = useState<string | null>(null)
   const adminTypingRefs = useRef<Record<string, boolean>>({})
   const adminTypingOffTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
-  const transcriptBottomRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const transcriptContainerRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const prevMessageCountsRef = useRef<Record<string, number>>({})
   const [analyticsYear, setAnalyticsYear] = useState(new Date().getFullYear())
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
@@ -327,9 +327,16 @@ export default function AdminConsolePage() {
       const request = requests.find((r) => r.id === id)
       const currentCount = (request?.chatHistory?.length ?? 0) + (request?.adminMessages?.length ?? 0)
       const prevCount = prevMessageCountsRef.current[id]
-      // Scroll only on first expand or when a new message arrives
+
       if (prevCount === undefined || currentCount > prevCount) {
-        transcriptBottomRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "end" })
+        const container = transcriptContainerRefs.current[id]
+        if (container) {
+          const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80
+          // Always scroll on first expand; on new messages only scroll if already near the bottom
+          if (prevCount === undefined || isNearBottom) {
+            container.scrollTop = container.scrollHeight
+          }
+        }
       }
       prevMessageCountsRef.current[id] = currentCount
     })
@@ -1812,7 +1819,10 @@ export default function AdminConsolePage() {
                             </span>
                           </div>
 
-                          <div className="max-h-96 overflow-y-auto rounded-lg border border-[#e5dede] bg-slate-50 p-3">
+                          <div
+                            ref={(el) => { transcriptContainerRefs.current[request.id] = el }}
+                            className="max-h-96 overflow-y-auto rounded-lg border border-[#e5dede] bg-slate-50 p-3"
+                          >
                             {timeline.length === 0 ? (
                               <p className="px-3 py-6 text-center text-sm text-slate-400">
                                 No conversation history was saved for this request.
@@ -1876,7 +1886,6 @@ export default function AdminConsolePage() {
                                   ))
                                 )}
 
-                                <div ref={(el) => { transcriptBottomRefs.current[request.id] = el }} />
                               </div>
                             )}
                           </div>
