@@ -6,7 +6,7 @@ import Sidebar from "@/components/Sidebar"
 import IntroScreen from "@/components/IntroScreen"
 import ChatWindow from "@/components/ChatWindow"
 import ChatInput from "@/components/ChatInput"
-import { FINANCIAL_AID_CONTACT, getSupportAvailability } from "@/lib/supportHours"
+import { FINANCIAL_AID_CONTACT, getSupportAvailability, getClosedMessage } from "@/lib/supportHours"
 import { generateId } from "@/lib/utils"
 import {
   DEFAULT_LANGUAGE_CODE,
@@ -135,8 +135,14 @@ export default function Page() {
   })
 
   const isLoading = status === "streaming" || status === "submitted"
-  const supportAvailability = getSupportAvailability()
+  const [supportAvailability, setSupportAvailability] = useState(getSupportAvailability)
   const selectedLanguage = getSupportedLanguage(languageCode)
+
+  // Refresh availability every 60 s so the button updates without a page reload
+  useEffect(() => {
+    const id = setInterval(() => setSupportAvailability(getSupportAvailability()), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => { activeConvIdRef.current = activeConversationId })
   useEffect(() => { messagesRef.current = messages })
@@ -553,7 +559,7 @@ export default function Page() {
         id: generateId(),
         role: "assistant",
         mode: "handoff",
-        content: uiText.outsideHoursNotice || OUTSIDE_HOURS_NOTICE,
+        content: getClosedMessage(supportAvailability.closedReason),
         sources: [],
       }
       setMessages((prev) => [...prev, closedMsg])

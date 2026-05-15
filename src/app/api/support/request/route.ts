@@ -4,6 +4,7 @@ import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/index"
 import { chatMessages, conversations, supportRequests } from "@/db/schema"
 import { getOrCreateSession } from "@/lib/session"
+import { getSupportAvailability, getClosedMessage } from "@/lib/supportHours"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -26,6 +27,15 @@ function latestUserQuestion(messages: IncomingMessage[]) {
 
 export async function POST(req: NextRequest) {
   try {
+    // Enforce office hours server-side so direct API calls can't bypass the UI guard
+    const availability = getSupportAvailability()
+    if (!availability.isAvailable) {
+      return Response.json(
+        { error: "live_support_unavailable", message: getClosedMessage(availability.closedReason) },
+        { status: 503 }
+      )
+    }
+
     const cookieStore = await cookies()
     const sessionId = await getOrCreateSession(cookieStore)
     const body = await req.json().catch(() => ({}))
