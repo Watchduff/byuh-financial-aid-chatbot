@@ -32,17 +32,15 @@ export default function ChatWindow({ messages, isLoading, error, supportRequestI
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, isLoading])
-
-  const lastAssistantIndex = messages.reduceRight(
-    (found, msg, i) => (found === -1 && msg.role === "assistant" ? i : found),
-    -1
-  )
-  const hasHandoffNotice = messages.some((msg) => msg.mode === "handoff")
+    // Defer one tick so the DOM has painted the new content before scrolling
+    const id = setTimeout(() => {
+      endRef.current?.scrollIntoView({ behavior: "smooth" })
+    }, 60)
+    return () => clearTimeout(id)
+  }, [messages, isLoading, adminTyping])
 
   return (
-    <div className="flex-1 space-y-3 overflow-y-auto pb-4 pt-2">
+    <div className="flex-1 space-y-3 overflow-y-auto pb-8 pt-2">
       {messages.length === 0 && !isLoading && (
         <div className="flex items-center justify-center py-12">
           <p className="text-sm text-slate-400">{uiText.emptyChat}</p>
@@ -66,22 +64,6 @@ export default function ChatWindow({ messages, isLoading, error, supportRequestI
             onFollowUp={onFollowUp}
             uiText={uiText}
           />
-          {/* Speak-to-human: support notice, not a user chat message */}
-          {msg.role === "assistant" &&
-            i === lastAssistantIndex &&
-            !isLoading &&
-            !supportRequestId &&
-            !hasHandoffNotice && (
-              <div className="mt-3 flex justify-start pl-10">
-                <button
-                  type="button"
-                  onClick={onSpeakToHuman}
-                  className="rounded-full border border-[#e5dede] bg-white px-4 py-2 text-sm font-semibold text-[#9E1B34] shadow-sm transition hover:bg-[#fff7f7] active:scale-[0.99]"
-                >
-                  {uiText.speakToHuman}
-                </button>
-              </div>
-            )}
         </div>
         )
       })}

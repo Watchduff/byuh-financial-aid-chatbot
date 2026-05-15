@@ -137,6 +137,16 @@ function formatTime(value: string) {
   })
 }
 
+function formatListTimestamp(value: string) {
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  })
+}
+
 function formatDayLabel(value: string) {
   const date = new Date(value)
   const today = new Date()
@@ -361,7 +371,8 @@ export default function AdminConsolePage() {
   const historyCounts = useMemo(() => {
     const high = chatHistory.filter((entry) => entry.confidence === "high").length
     const low = chatHistory.filter((entry) => entry.confidence === "low").length
-    return { high, low, all: chatHistory.length }
+    const uniqueConversations = new Set(chatHistory.map((entry) => entry.conversationId)).size
+    return { high, low, all: chatHistory.length, conversations: uniqueConversations }
   }, [chatHistory])
 
   const visibleChatHistory = useMemo(() => {
@@ -401,6 +412,8 @@ export default function AdminConsolePage() {
         const latestEntry = sortedEntries.at(-1) ?? entries[0]
         const lowCount = entries.filter((entry) => entry.confidence === "low").length
         const highCount = entries.filter((entry) => entry.confidence === "high").length
+        const agentReplies = historyAgentReplies[conversationId] ?? []
+        const agentNames = [...new Set(agentReplies.map((r) => r.agentName))]
 
         return {
           conversationId,
@@ -411,10 +424,12 @@ export default function AdminConsolePage() {
           lowCount,
           highCount,
           total: entries.length,
+          agentNames,
+          hasLiveSupport: agentReplies.length > 0,
         }
       })
       .sort((a, b) => new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime())
-  }, [visibleChatHistory])
+  }, [visibleChatHistory, historyAgentReplies])
 
   const selectedHistoryConversation = useMemo(() => {
     return historyConversations.find((conversation) => conversation.conversationId === selectedHistoryConversationId)
@@ -883,6 +898,18 @@ export default function AdminConsolePage() {
               </svg>
               Refresh requests
             </button>
+
+            <label className="mt-3 block">
+              <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">
+                Name shown to user
+              </span>
+              <input
+                value={adminName}
+                onChange={(event) => setAdminName(event.target.value)}
+                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/45 focus:bg-white/15"
+                placeholder="Financial Aid Advisor"
+              />
+            </label>
           </div>
 
           <nav className="flex-1 overflow-y-auto px-3 py-4">
@@ -946,7 +973,7 @@ export default function AdminConsolePage() {
                       isHistoryView ? "bg-[#9E1B34]/10" : "bg-white/10"
                     }`}
                   >
-                    {historyCounts.all}
+                    {historyCounts.conversations}
                   </span>
                   <span className="min-w-0">
                     <span className="block text-sm font-semibold">{HISTORY_FILTER.label}</span>
@@ -1046,19 +1073,18 @@ export default function AdminConsolePage() {
             </div>
           </nav>
 
-          <div className="border-t border-white/10 p-4">
-            <label className="block">
-              <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">
-                Name shown to user
-              </span>
-              <input
-                value={adminName}
-                onChange={(event) => setAdminName(event.target.value)}
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/45 focus:bg-white/15"
-                placeholder="Financial Aid Advisor"
-              />
-            </label>
+          <div className="border-t border-white/10 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white">
+                {(adminName || "A").charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white">{adminName || "Financial Aid Advisor"}</p>
+                <p className="text-[10px] text-white/45">Signed in as advisor</p>
+              </div>
+            </div>
           </div>
+
         </aside>
 
         <section className="min-w-0 flex-1">
@@ -1085,24 +1111,28 @@ export default function AdminConsolePage() {
               </div>
               <div className="hidden rounded-lg border border-[#e5dede] bg-white px-3 py-2 text-right shadow-sm sm:block">
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                  {isHistoryView ? "Questions" : isAnalyticsView ? "Questions" : "Visible"}
+                  {isHistoryView ? "Chats" : isAnalyticsView ? "Questions" : "Visible"}
                 </p>
                 <p className="text-lg font-bold text-[#9E1B34]">
-                  {isHistoryView ? visibleChatHistory.length : isAnalyticsView ? (analyticsData?.totals.questions ?? "—") : visibleRequests.length}
+                  {isHistoryView ? historyConversations.length : isAnalyticsView ? (analyticsData?.totals.questions ?? "—") : visibleRequests.length}
                 </p>
               </div>
             </div>
           </header>
 
           <div className={`mx-auto px-4 py-5 md:px-6 ${isHistoryView ? "max-w-none" : "max-w-6xl"}`}>
-            <div className="mb-5 grid gap-3 lg:grid-cols-[1fr_1fr]">
-              <p className="rounded-lg border border-[#e5dede] bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
-                {SUPPORT_HOURS_NOTE}
-              </p>
-              <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 shadow-sm">
-                Do not request or store sensitive personal information in live chat. Direct account-specific records to official BYU-Hawaii Financial Aid channels.
-              </p>
-            </div>
+            {!isHistoryView && !isAnalyticsView && (
+              <div className="mb-5 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0 text-slate-400">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.253a.25.25 0 0 1 .244.304l-.459 2.066A1.75 1.75 0 0 0 10.747 15H11a.75.75 0 0 0 0-1.5h-.253a.25.25 0 0 1-.244-.304l.459-2.066A1.75 1.75 0 0 0 9.253 9H9Z" clipRule="evenodd" />
+                </svg>
+                <p className="text-xs leading-5 text-slate-500">
+                  <span className="font-semibold text-slate-600">Hours:</span> Mon–Fri, 8 AM–5 PM HST. Closed during devotional (Tue 11 AM–12 PM) and holidays.
+                  <span className="mx-2 text-slate-300">·</span>
+                  <span className="font-semibold text-amber-700">Privacy:</span> Do not collect or store sensitive personal information in live chat — direct account-specific records to official Financial Aid channels.
+                </p>
+              </div>
+            )}
 
             {isTrashView && (
               <div className="mb-5 grid gap-3 sm:grid-cols-3">
@@ -1534,7 +1564,7 @@ export default function AdminConsolePage() {
                           <h3 className="mt-1 text-lg font-bold text-slate-950">{historyConversations.length} conversations</h3>
                         </div>
                         <span className="rounded-lg border border-[#dccfd0] bg-white px-2.5 py-1 text-xs font-bold text-slate-500">
-                          {visibleChatHistory.length} turns
+                          {visibleChatHistory.length} questions
                         </span>
                       </div>
                       <label className="mt-4 block">
@@ -1574,25 +1604,34 @@ export default function AdminConsolePage() {
                                   }`}
                                 >
                                   <div className="flex items-start justify-between gap-4">
-                                    <div className="min-w-0">
-                                      <p className="font-bold text-slate-900">{formatTime(conversation.latestAt)}</p>
-                                      <p className="mt-1 line-clamp-1 text-sm font-semibold text-slate-700">
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-[11px] font-bold text-slate-500">{formatListTimestamp(conversation.latestAt)}</p>
+                                      <p className="mt-1 line-clamp-1 text-sm font-semibold text-slate-800">
                                         {conversation.title}
                                       </p>
-                                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                                      <p className="mt-1 line-clamp-1 text-xs leading-5 text-slate-500">
                                         {conversation.preview}
                                       </p>
+                                      {conversation.hasLiveSupport && (
+                                        <div className="mt-2 flex items-center gap-1.5">
+                                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-blue-500">
+                                            <path fillRule="evenodd" d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0Zm-6-3.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM7.25 6.5a.75.75 0 0 0 0 1.5h.25V10a.75.75 0 0 0 1.5 0V7.25A.75.75 0 0 0 8.25 6.5h-1Z" clipRule="evenodd" />
+                                          </svg>
+                                          <span className="text-[10px] font-semibold text-blue-600">
+                                            Advisor: {conversation.agentNames.join(", ")}
+                                          </span>
+                                        </div>
+                                      )}
                                     </div>
-                                    <div className="flex shrink-0 flex-col items-end gap-2">
-                                      <span className="rounded-full bg-slate-200 px-2 py-1 text-xs font-bold text-slate-700">
-                                        {conversation.total}
+                                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                                      <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600">
+                                        {conversation.total} Q
                                       </span>
-                                      <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${
-                                        conversation.lowCount > 0
-                                          ? "bg-amber-100 text-amber-800"
-                                          : "bg-emerald-100 text-emerald-800"
-                                      }`}>
-                                        {conversation.lowCount > 0 ? `${conversation.lowCount} low` : `${conversation.highCount} high`}
+                                      <span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                                        {conversation.highCount} high
+                                      </span>
+                                      <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-700">
+                                        {conversation.lowCount} low
                                       </span>
                                       {selected && (
                                         <span className="rounded-full bg-[#9E1B34]/10 px-2 py-1 text-[10px] font-bold text-[#9E1B34]">
@@ -1636,6 +1675,11 @@ export default function AdminConsolePage() {
                               <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">
                                 {selectedHistoryConversation.highCount} high
                               </span>
+                              {selectedHistoryConversation.hasLiveSupport && (
+                                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                                  Advisor: {selectedHistoryConversation.agentNames.join(", ")}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1736,8 +1780,28 @@ export default function AdminConsolePage() {
                 </div>
               )
             ) : visibleRequests.length === 0 ? (
-              <div className="rounded-lg border border-[#e5dede] bg-white py-16 text-center text-sm text-slate-400">
-                {isTrashView ? "No deleted support requests." : `No ${filter === "all" ? "" : filter} support requests.`}
+              <div className="flex flex-col items-center justify-center rounded-lg border border-[#e5dede] bg-white py-20 text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
+                  {isTrashView ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-7 w-7 text-slate-400">
+                      <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-7 w-7 text-slate-400">
+                      <path fillRule="evenodd" d="M1 11.27c0-.246.033-.492.099-.73l1.523-5.521A2.75 2.75 0 0 1 5.273 3h9.454a2.75 2.75 0 0 1 2.651 2.019l1.523 5.52c.066.239.099.485.099.732V15a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-3.73Zm3.068-5.852A1.25 1.25 0 0 1 5.273 4.5h9.454a1.25 1.25 0 0 1 1.205.918l1.523 5.52c.006.02.01.041.015.062H14a1 1 0 0 0-.86.49l-.606 1.02a1 1 0 0 1-.86.49H8.326a1 1 0 0 1-.86-.49l-.606-1.02A1 1 0 0 0 6 11H2.53l.015-.062 1.523-5.52Z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                </div>
+                <p className="mt-4 text-base font-semibold text-slate-700">
+                  {isTrashView ? "Trash is empty" : "All caught up"}
+                </p>
+                <p className="mt-1 text-sm text-slate-400">
+                  {isTrashView
+                    ? "No deleted support requests to show."
+                    : filter === "all"
+                      ? "No support requests yet."
+                      : `No ${filter} support requests right now.`}
+                </p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -1791,6 +1855,14 @@ export default function AdminConsolePage() {
                           <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                             Requested {formatDate(request.createdAt)}
                           </p>
+                          {request.assignedAgentName && (
+                            <p className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-blue-600">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+                                <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.254 1.139.872 1.139h9.47Z" />
+                              </svg>
+                              Handled by: {request.assignedAgentName}
+                            </p>
+                          )}
                           {isTrashView && (
                             <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-red-500">
                               Deleted {formatDate(request.deletedAt ?? request.updatedAt)}
@@ -1915,29 +1987,32 @@ export default function AdminConsolePage() {
                                   ))
                                 )}
 
+                                {/* Typing indicator — inline at the bottom of the thread */}
+                                {label === "Pending" && typingStatuses[request.id] && (
+                                  <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+                                    <span className="flex shrink-0 items-center gap-1 pt-1">
+                                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.3s]" />
+                                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.15s]" />
+                                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500" />
+                                    </span>
+                                    <div className="min-w-0">
+                                      <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Student is typing…</p>
+                                      {studentDrafts[request.id] && (
+                                        <p className="mt-0.5 wrap-break-word text-sm italic text-emerald-800">
+                                          &ldquo;{studentDrafts[request.id]}&rdquo;
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
                               </div>
                             )}
                           </div>
 
                           {!isTrashView && (
                             <div className="mt-5 rounded-lg border border-[#e5dede] bg-[#fdf8f8] p-4">
-                              {label === "Pending" && typingStatuses[request.id] && (
-                                <div className="mb-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
-                                  <span className="flex shrink-0 items-center gap-1 pt-1">
-                                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.3s]" />
-                                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.15s]" />
-                                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500" />
-                                  </span>
-                                  <div className="min-w-0">
-                                    <p className="text-xs font-semibold text-emerald-700">Student is typing…</p>
-                                    {studentDrafts[request.id] && (
-                                      <p className="mt-0.5 wrap-break-word text-sm italic text-emerald-800">
-                                        &ldquo;{studentDrafts[request.id]}&rdquo;
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
+                              {/* Suggested replies */}
                               {/* Suggested replies */}
                               {label === "Pending" && (
                                 <div className="mb-3">

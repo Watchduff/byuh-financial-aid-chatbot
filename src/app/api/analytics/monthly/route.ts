@@ -7,8 +7,10 @@ export const runtime = "nodejs"
 
 type MessageRow = typeof chatMessages.$inferSelect
 
-function inferConfidence(message: MessageRow | undefined): "high" | "low" {
+function inferConfidence(message: MessageRow | undefined): "high" | "low" | null {
   if (!message) return "low"
+  // Conversational greetings/openers have no RAG confidence — exclude from high/low counts
+  if (message.responseMode === "conversational") return null
   if (message.responseConfidence === "high" || message.responseConfidence === "low") {
     return message.responseConfidence
   }
@@ -77,7 +79,8 @@ export async function GET(request: Request) {
         monthlyData[key].conversations.add(conv.id)
         monthlyData[key].questions++
         if (confidence === "high") monthlyData[key].high++
-        else monthlyData[key].low++
+        else if (confidence === "low") monthlyData[key].low++
+        // null (conversational) = counted in questions but not in high/low
       }
     }
 

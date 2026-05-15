@@ -7,8 +7,9 @@ export const runtime = "nodejs"
 
 type MessageRow = typeof chatMessages.$inferSelect
 
-function inferConfidence(message: MessageRow | undefined): "high" | "low" {
+function inferConfidence(message: MessageRow | undefined): "high" | "low" | null {
   if (!message) return "low"
+  if (message.responseMode === "conversational") return null
   if (message.responseConfidence === "high" || message.responseConfidence === "low") {
     return message.responseConfidence
   }
@@ -79,7 +80,7 @@ export async function GET(request: Request) {
         dailyData[key].conversations.add(conv.id)
         dailyData[key].questions++
         if (confidence === "high") dailyData[key].high++
-        else dailyData[key].low++
+        else if (confidence === "low") dailyData[key].low++
       }
     }
 
