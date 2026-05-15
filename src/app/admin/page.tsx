@@ -1482,14 +1482,14 @@ export default function AdminConsolePage() {
                               key={option.id}
                               type="button"
                               onClick={() => setConfidenceFilter(option.id)}
-                              className={`flex items-center justify-between rounded-lg border px-5 py-4 text-left text-base font-semibold transition ${
+                              className={`flex flex-col items-start rounded-lg border px-4 py-3 text-left transition ${
                                 confidenceFilter === option.id
                                   ? "border-[#9E1B34] bg-[#fff7f7] text-[#9E1B34]"
                                   : "border-[#e5dede] bg-white text-slate-600 hover:bg-slate-50"
                               }`}
                             >
-                              <span>{option.label}</span>
-                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-sm text-slate-500">{option.count}</span>
+                              <span className="text-xs font-semibold uppercase tracking-wide opacity-70">{option.label}</span>
+                              <span className="mt-1 text-2xl font-bold">{option.count}</span>
                             </button>
                           ))}
                         </div>
