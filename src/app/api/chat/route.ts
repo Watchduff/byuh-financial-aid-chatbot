@@ -259,6 +259,8 @@ const OUT_OF_SCOPE_PATTERNS: RegExp[] = [
   /\b(sports?\s+(score|update|news)|who\s+(won|lost)\s+the\s+(game|match|series)|nba|nfl\b|mlb\b|nhl\b|epl\b|recommend\s+(a\s+)?(movie|song|book|tv\s+show|podcast)|what\s+(movie|show|song)\s+should)\b/i,
   // Generic trivia / general knowledge unrelated to BYUH
   /\b(capital\s+of\s+[a-z]+|population\s+of\s+[a-z]+|who\s+(is|was)\s+the\s+(president|prime\s+minister|ceo|inventor|founder)\s+of|what\s+country\s+is|recipe\s+for|how\s+to\s+cook|convert\s+\w+\s+to\s+\w+)\b/i,
+  // Date / time queries — "what day is today", "what time is it", "what's the date"
+  /\b(what\s+(day|time|date|year|month)\s+(is\s+)?(it|today|now|currently)|what'?s\s+(today'?s?\s+)?(date|day|time)|current\s+(time|date|day)|today'?s?\s+date|what\s+is\s+today)\b/i,
 ]
 
 // Polite refusal message returned for all out-of-scope requests
@@ -516,7 +518,6 @@ async function buildFallbackResponse(message: string, language: SupportedLanguag
     confidenceScore: 0,
     sources: [],
     sentiment: currentSentiment,
-    escalation: escalation("The chatbot could not access a reliable knowledge-base answer.", "high"),
   })
 }
 
@@ -712,7 +713,6 @@ export async function POST(req: Request) {
         confidenceScore,
         sources: [],
         sentiment: currentSentiment,
-        escalation: escalation("The chatbot found low-confidence context and could not answer reliably.", "normal"),
       })
     }
 

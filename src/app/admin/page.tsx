@@ -465,10 +465,16 @@ export default function AdminConsolePage() {
         next.delete(id)
       } else {
         next.add(id)
-        // auto-fetch suggestions when expanding a pending request
         const request = requests.find((r) => r.id === id)
-        if (request && statusLabel(request.status) === "Pending" && !suggestedReplies[id]) {
-          void fetchSuggestedReplies(id)
+        if (request && statusLabel(request.status) === "Pending") {
+          // auto-fetch suggestions
+          if (!suggestedReplies[id]) void fetchSuggestedReplies(id)
+          // signal to student that advisor is now reviewing their chat
+          void fetch("/api/support/view", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ requestId: id }),
+          })
         }
       }
       return next

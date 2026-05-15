@@ -236,8 +236,14 @@ export default function Page() {
           agentName: m.agentName,
         }))
 
+        // Advisor sent a message — show their name in the status badge
         if (newOnes.length > 0 && newOnes[0].agentName) {
           setConnectedAdvisorName(newOnes[0].agentName)
+        }
+
+        // Advisor opened the chat (status = active) but hasn't replied yet
+        if (requestStatus === "active" && !connectedAdvisorName) {
+          setConnectedAdvisorName("Advisor")
         }
 
         const terminalNotice =
@@ -704,7 +710,8 @@ export default function Page() {
                     {supportAvailability.label === "Live Support Closed" ? uiText.liveSupportClosed : uiText.liveSupport}
                   </span>
                 </button>
-              ) : connectedAdvisorName ? (
+              ) : connectedAdvisorName && connectedAdvisorName !== "Advisor" ? (
+                // Advisor has sent at least one message — show their real name
                 <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-green-400/40 bg-green-500/20 px-3 py-2 text-xs font-semibold text-green-200">
                   <span className="relative flex h-2 w-2 shrink-0">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
@@ -712,12 +719,17 @@ export default function Page() {
                   </span>
                   <span className="hidden sm:inline">{connectedAdvisorName} is online</span>
                 </div>
-              ) : adminTyping ? (
-                <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-green-400/30 bg-green-500/15 px-3 py-2 text-xs font-medium text-green-300">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
-                  <span className="hidden sm:inline">Advisor is here…</span>
+              ) : connectedAdvisorName === "Advisor" || adminTyping ? (
+                // Advisor opened the chat or is typing — connected but no name yet
+                <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-green-400/30 bg-green-500/15 px-3 py-2 text-xs font-semibold text-green-300">
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-300 opacity-60" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-300" />
+                  </span>
+                  <span className="hidden sm:inline">Advisor Connected</span>
                 </div>
               ) : (
+                // No advisor yet
                 <div className="flex shrink-0 items-center gap-1.5 rounded-xl bg-white/10 px-3 py-2 text-xs font-medium text-white/60">
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
                   <span className="hidden sm:inline">{uiText.waitingForAdvisor}</span>
