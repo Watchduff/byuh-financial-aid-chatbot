@@ -111,27 +111,68 @@ RULES — follow every one without exception:
 // ---------------------------------------------------------------------------
 // Conversational opener guard
 //
-// Catches greetings and vague openers like "i have a question" BEFORE
-// retrieval so we can respond warmly instead of returning a dead-end fallback.
+// Each group has its own patterns + a response that fits that specific context
+// so "hello" gets a greeting, "thanks" gets "you're welcome", etc.
 // ---------------------------------------------------------------------------
-const CONVERSATIONAL_OPENER_PATTERNS: RegExp[] = [
-  // Greetings
-  /^\s*(hi+|hey+|hello+|howdy|greetings|good\s+(morning|afternoon|evening|day))[!,.\s]*$/i,
-  // "i have a question" variants
-  /^\s*i\s+(have|got|had)\s+(a\s+)?(quick\s+)?(question|query|concern|inquiry)[!,.\s?]*$/i,
-  // "can you help" variants
-  /^\s*(can\s+you\s+help(\s+me)?|i\s+need\s+help|help\s+me|i\s+need\s+assistance)[!,.\s?]*$/i,
-  // "are you there" / "is anyone there"
-  /^\s*(are\s+you\s+there|is\s+anyone\s+there|anyone\s+here)[!,.\s?]*$/i,
-  // Pure "thanks" / acknowledgements with no follow-up content
-  /^\s*(thanks?|thank\s+you|thx|ty|ok|okay|got\s+it|sure|sounds\s+good|great|awesome|cool|perfect)[!,.\s]*$/i,
+const CONVERSATIONAL_OPENER_GROUPS: Array<{ patterns: RegExp[]; response: string }> = [
+  {
+    // Pure greetings
+    patterns: [
+      /^\s*(hi+|hey+|hello+|howdy|greetings|good\s+(morning|afternoon|evening|day))[!,.\s]*$/i,
+    ],
+    response:
+      "Hi there! I'm Lani, your BYU–Hawaii Financial Aid assistant. What can I help you with today? " +
+      "I can answer questions about scholarships, FAFSA, tuition, deadlines, required documents, the iWork program, and more!",
+  },
+  {
+    // "I have a question" / "I have a concern"
+    patterns: [
+      /^\s*i\s+(have|got|had)\s+(a\s+)?(quick\s+)?(question|query|concern|inquiry)[!,.\s?]*$/i,
+    ],
+    response:
+      "Of course — go ahead and ask! I'm here to help with anything about BYU–Hawaii financial aid.",
+  },
+  {
+    // "Can you help me" / "I need help"
+    patterns: [
+      /^\s*(can\s+you\s+help(\s+me)?|i\s+need\s+help|help\s+me|i\s+need\s+assistance)[!,.\s?]*$/i,
+    ],
+    response:
+      "Absolutely! What's your question? I can help with scholarships, FAFSA, tuition costs, deadlines, required documents, and the iWork program.",
+  },
+  {
+    // "Are you there?" / presence checks
+    patterns: [
+      /^\s*(are\s+you\s+there|is\s+anyone\s+there|anyone\s+here)[!,.\s?]*$/i,
+    ],
+    response:
+      "Yes, I'm here! Go ahead and ask your financial aid question — I'm ready to help.",
+  },
+  {
+    // Thanks / acknowledgements
+    patterns: [
+      /^\s*(thanks?|thank\s+you|thx|ty)[!,.\s]*$/i,
+    ],
+    response:
+      "You're welcome! Feel free to ask anytime if you have more financial aid questions — I'm always here.",
+  },
+  {
+    // Positive acknowledgements — "ok", "got it", "sounds good", etc.
+    patterns: [
+      /^\s*(ok|okay|got\s+it|sure|sounds\s+good|great|awesome|cool|perfect|alright|noted)[!,.\s]*$/i,
+    ],
+    response:
+      "Great! Let me know if anything else comes up — happy to help with any BYU–Hawaii financial aid questions.",
+  },
 ]
 
-const CONVERSATIONAL_OPENER_RESPONSE =
-  "Of course! I'm happy to help. Go ahead and ask your question about BYU–Hawaii financial aid — whether it's about scholarships, FAFSA, tuition, deadlines, required documents, or the iWork program, I've got you covered!"
-
-function isConversationalOpener(message: string): boolean {
-  return CONVERSATIONAL_OPENER_PATTERNS.some((pattern) => pattern.test(message))
+function getConversationalOpenerResponse(message: string): string | null {
+  for (const group of CONVERSATIONAL_OPENER_GROUPS) {
+    if (group.patterns.some((pattern) => pattern.test(message))) {
+      return group.response
+    }
+  }
+  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -629,11 +670,12 @@ export async function POST(req: Request) {
     }
 
     // Step 1a: Respond warmly to conversational openers (greetings, "i have a question", etc.)
-    if (isConversationalOpener(message)) {
-      console.log("[chat] Conversational opener detected — responding with invitation")
+    const openerResponse = getConversationalOpenerResponse(message)
+    if (openerResponse) {
+      console.log("[chat] Conversational opener detected — responding contextually")
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
-        message: await localizeResponse(CONVERSATIONAL_OPENER_RESPONSE, language),
+        message: await localizeResponse(openerResponse, language),
         confidence: "high",
         confidenceScore: 100,
         sources: [],
