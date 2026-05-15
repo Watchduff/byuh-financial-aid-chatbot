@@ -214,12 +214,22 @@ const HUMAN_ESCALATION_PATTERNS: RegExp[] = [
   /\b(is\s+there\s+(anyone|somebody|someone)\s+(i\s+can\s+)?(talk|speak|chat)\s+(to|with)|can\s+(someone|anybody|a\s+person)\s+(help|assist)\s+me)\b/i,
   // Standalone short phrases
   /^\s*(talk\s+to\s+(a\s+)?(human|person|advisor)|speak\s+to\s+(a\s+)?(human|person|advisor)|i\s+want\s+(a\s+)?(human|person|advisor)|connect\s+me|need\s+a\s+(human|person|advisor|agent)|human\s+please|get\s+me\s+(a\s+)?(person|human|advisor))\s*[!?.]*\s*$/i,
+  // Informal / abbreviated — "someone please", "just someone", "a person"
+  /^\s*(someone\s+(please|help|now)?|just\s+(a\s+)?(someone|person|human|advisor)|a\s+(real\s+)?(person|human|advisor)\s*(please)?)\s*[!?.]*\s*$/i,
+  // Hawaiian Pidgin / informal: "no like someone/advisor/person" = "I want a human instead"
+  /\bno\s+like\s+(a\s+)?(someone|person|human|advisor|adviser|agent|staff|real\s+person)\b/i,
+  // "like someone/a person" as a standalone clarification
+  /^\s*like\s+(a\s+)?(someone|person|human|advisor|adviser|real\s+person)\s*[!?.]*\s*$/i,
+  // "i just want someone/a person to talk to"
+  /\bi\s+(just\s+)?(want|need)\s+(a\s+)?(someone|person|human|advisor)\s*(to\s+(talk|speak|chat))?\b/i,
+  // "can i talk to someone", "can someone help"
+  /\bcan\s+(i\s+)?(talk|speak|chat)\s+to\s+(a\s+)?(someone|person|human|advisor)\b/i,
 ]
 
 const HUMAN_ESCALATION_RESPONSE =
-  "Of course! I'll connect you with a Financial Aid advisor right away. " +
-  "Please hold on — someone from the team will join this chat shortly. " +
-  "In the meantime, feel free to share any details about your question so the advisor can help you faster."
+  "Got it — I'll connect you with a Financial Aid advisor right away! " +
+  "Someone from the team will join this chat shortly. " +
+  "Feel free to share more details about your question while you wait so the advisor can help you faster."
 
 function isHumanEscalationRequest(message: string): boolean {
   return HUMAN_ESCALATION_PATTERNS.some((pattern) => pattern.test(message))
