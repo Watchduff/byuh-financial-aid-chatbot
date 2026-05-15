@@ -1163,22 +1163,24 @@ export default function AdminConsolePage() {
                         </button>
                       </div>
 
-                      {/* Year dropdown — replaces the pill buttons */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Year</span>
-                        <select
-                          value={analyticsYear}
-                          onChange={(e) => {
-                            setAnalyticsYear(Number(e.target.value))
-                            setSelectedAnalyticsMonth(null)
-                          }}
-                          className="rounded-lg border border-[#e5dede] bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-[#9E1B34]/50 focus:ring-2 focus:ring-[#9E1B34]/10"
-                        >
-                          {(analyticsData?.availableYears ?? Array.from({ length: 3 }, (_, i) => new Date().getFullYear() - i)).map((y) => (
-                            <option key={y} value={y}>{y}</option>
-                          ))}
-                        </select>
-                      </div>
+                      {/* Year dropdown — only shown in Yearly view */}
+                      {analyticsView === "yearly" && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Year</span>
+                          <select
+                            value={analyticsYear}
+                            onChange={(e) => {
+                              setAnalyticsYear(Number(e.target.value))
+                              setSelectedAnalyticsMonth(null)
+                            }}
+                            className="rounded-lg border border-[#e5dede] bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-[#9E1B34]/50 focus:ring-2 focus:ring-[#9E1B34]/10"
+                          >
+                            {(analyticsData?.availableYears ?? Array.from({ length: 3 }, (_, i) => new Date().getFullYear() - i)).map((y) => (
+                              <option key={y} value={y}>{y}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
 
                     {/* Print button — context-aware */}
