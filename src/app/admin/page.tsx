@@ -1509,7 +1509,7 @@ export default function AdminConsolePage() {
                     </div>
                   </section>
 
-                  <div className="grid min-h-[720px] overflow-hidden rounded-lg border border-[#d8e0e8] bg-white shadow-sm lg:grid-cols-[420px_minmax(0,1fr)] 2xl:grid-cols-[480px_minmax(0,1fr)]">
+                  <div className="grid min-h-180 overflow-hidden rounded-lg border border-[#d8e0e8] bg-white shadow-sm lg:grid-cols-[420px_minmax(0,1fr)] 2xl:grid-cols-[480px_minmax(0,1fr)]">
                   <aside className="border-b border-[#d8e0e8] bg-slate-50 lg:border-b-0 lg:border-r">
                     <div className="border-b border-[#d8e0e8] px-6 py-5">
                       <div className="flex items-center justify-between gap-3">
@@ -1538,7 +1538,7 @@ export default function AdminConsolePage() {
                         </div>
                       </label>
                     </div>
-                    <div className="max-h-[560px] overflow-y-auto px-5 py-4 lg:max-h-[630px]">
+                    <div className="max-h-140 overflow-y-auto px-5 py-4 lg:max-h-157.5">
                       {groupedHistoryConversations.map((group) => (
                         <div key={group.label} className="mb-5">
                           <div className="mb-2 inline-flex items-center gap-2 rounded-lg bg-slate-200 px-3 py-2 text-xs font-bold text-slate-700">
@@ -1596,7 +1596,7 @@ export default function AdminConsolePage() {
                     </div>
                   </aside>
 
-                  <section className="min-h-[720px] bg-white">
+                  <section className="min-h-180 bg-white">
                     {selectedHistoryConversation ? (
                       <div className="flex h-full flex-col">
                         <div className="border-b border-[#d8e0e8] px-8 py-6">
@@ -1678,7 +1678,7 @@ export default function AdminConsolePage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex h-full min-h-[640px] items-center justify-center text-center text-slate-400">
+                      <div className="flex h-full min-h-160 items-center justify-center text-center text-slate-400">
                         <div>
                           <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full border border-[#e5dede] bg-slate-50">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-7 w-7">
@@ -1887,7 +1887,7 @@ export default function AdminConsolePage() {
                                   <div className="min-w-0">
                                     <p className="text-xs font-semibold text-emerald-700">Student is typing…</p>
                                     {studentDrafts[request.id] && (
-                                      <p className="mt-0.5 break-words text-sm italic text-emerald-800">
+                                      <p className="mt-0.5 wrap-break-word text-sm italic text-emerald-800">
                                         &ldquo;{studentDrafts[request.id]}&rdquo;
                                       </p>
                                     )}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 
@@ -44,7 +44,7 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<"all" | "pending" | "assigned" | "resolved">("all")
 
-  async function fetchRequests() {
+  const fetchRequests = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/support-requests")
       if (res.status === 401) { router.push("/admin"); return }
@@ -55,13 +55,13 @@ export default function AdminDashboardPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [router])
 
   useEffect(() => {
     fetchRequests()
     const interval = setInterval(fetchRequests, 10000)
     return () => clearInterval(interval)
-  }, [])
+  }, [fetchRequests])
 
   async function handleLogout() {
     await fetch("/api/admin/auth", { method: "DELETE" })
