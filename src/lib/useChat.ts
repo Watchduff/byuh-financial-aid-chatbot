@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react"
+import { generateId } from "@/lib/utils"
 
 export type UIMessage = {
   id: string
@@ -43,7 +44,7 @@ export function useChat(options?: UseChatOptions) {
       const conversationTitle = message.conversationTitle
 
       const userMessage: UIMessage = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         role: "user",
         content: message.text,
         stored: false,
@@ -75,7 +76,7 @@ export function useChat(options?: UseChatOptions) {
           : undefined
 
         const assistantMessage: UIMessage = {
-          id: crypto.randomUUID(),
+          id: generateId(),
           role: "assistant",
           mode,
           confidence: data.confidence === "low" ? "low" : data.confidence === "high" ? "high" : undefined,

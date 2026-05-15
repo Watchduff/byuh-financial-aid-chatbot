@@ -7,6 +7,7 @@ import IntroScreen from "@/components/IntroScreen"
 import ChatWindow from "@/components/ChatWindow"
 import ChatInput from "@/components/ChatInput"
 import { FINANCIAL_AID_CONTACT, getSupportAvailability } from "@/lib/supportHours"
+import { generateId } from "@/lib/utils"
 import {
   DEFAULT_LANGUAGE_CODE,
   SUPPORTED_LANGUAGES,
@@ -255,7 +256,7 @@ export default function Page() {
 
         if (terminalNotice && !completedSupportRequestIds.has(activeSupportRequestId)) {
           nextMessages.push({
-            id: crypto.randomUUID(),
+            id: generateId(),
             role: "assistant",
             mode: "session-ended",
             content: terminalNotice,
@@ -371,7 +372,7 @@ export default function Page() {
   // ---------------------------------------------------------------------------
 
   async function handleStartFromIntro(question: string) {
-    const id = crypto.randomUUID()
+    const id = generateId()
     const title = question.length > 50 ? question.slice(0, 47) + "…" : question
 
     setConversations((prev) => [{ id, title, savedMessages: [] }, ...prev])
@@ -410,7 +411,7 @@ export default function Page() {
 
     if (supportRequestId) {
       const userMessage: UIMessage = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         role: "user",
         content: trimmed,
       }
@@ -428,7 +429,7 @@ export default function Page() {
 
       if (isLiveEscalationPhrase(trimmed)) {
         const reassuranceMsg: UIMessage = {
-          id: crypto.randomUUID(),
+          id: generateId(),
           role: "assistant",
           mode: "handoff",
           content: LIVE_SUPPORT_REASSURANCE,
@@ -444,7 +445,7 @@ export default function Page() {
     let conversationTitle = trimmed.length > 50 ? trimmed.slice(0, 47) + "..." : trimmed
 
     if (!conversationId) {
-      const id = crypto.randomUUID()
+      const id = generateId()
       conversationId = id
       setConversations((prev) => [{ id, title: conversationTitle, savedMessages: [] }, ...prev])
       setActiveConversationId(id)
@@ -535,7 +536,7 @@ export default function Page() {
   }
 
   async function handleLiveSupportFromIntro() {
-    const id = crypto.randomUUID()
+    const id = generateId()
     setConversations((prev) => [{ id, title: "Live Support Request", savedMessages: [] }, ...prev])
     setActiveConversationId(id)
     setViewMode("chat")
@@ -549,7 +550,7 @@ export default function Page() {
 
     if (!supportAvailability.isAvailable) {
       const closedMsg: UIMessage = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         role: "assistant",
         mode: "handoff",
         content: uiText.outsideHoursNotice || OUTSIDE_HOURS_NOTICE,
@@ -562,7 +563,7 @@ export default function Page() {
     let conversationId = options.forConversationId ?? activeConvIdRef.current
 
     if (!conversationId) {
-      const newConversationId = crypto.randomUUID()
+      const newConversationId = generateId()
       conversationId = newConversationId
       setConversations((prev) => [
         { id: newConversationId, title: "Live Support Request", savedMessages: [] },
@@ -598,7 +599,7 @@ export default function Page() {
       }
 
       const handoffMsg: UIMessage = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         role: "assistant",
         mode: "handoff",
         content: options.automatic
@@ -610,7 +611,7 @@ export default function Page() {
       setMessages((prev) => [...prev, handoffMsg])
     } catch {
       const unavailableMsg: UIMessage = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         role: "assistant",
         mode: "unavailable",
         content:
