@@ -117,6 +117,7 @@ export default function Page() {
   const [seenAgentMessageIds, setSeenAgentMessageIds] = useState<Set<string>>(new Set())
   const [completedSupportRequestIds, setCompletedSupportRequestIds] = useState<Set<string>>(new Set())
   const [adminTyping, setAdminTyping] = useState(false)
+  const [connectedAdvisorName, setConnectedAdvisorName] = useState<string | null>(null)
   const [languageCode, setLanguageCode] = useState(DEFAULT_LANGUAGE_CODE)
   const [uiText, setUiText] = useState<UIText>(DEFAULT_UI_TEXT)
 
@@ -135,8 +136,6 @@ export default function Page() {
   const isLoading = status === "streaming" || status === "submitted"
   const supportAvailability = getSupportAvailability()
   const selectedLanguage = getSupportedLanguage(languageCode)
-  const liveSupportStatusLabel =
-    supportRequestId && seenAgentMessageIds.size > 0 ? "Connected" : "Waiting for advisor"
 
   useEffect(() => { activeConvIdRef.current = activeConversationId })
   useEffect(() => { messagesRef.current = messages })
@@ -237,6 +236,10 @@ export default function Page() {
           agentName: m.agentName,
         }))
 
+        if (newOnes.length > 0 && newOnes[0].agentName) {
+          setConnectedAdvisorName(newOnes[0].agentName)
+        }
+
         const terminalNotice =
           requestStatus === "answered"
             ? uiText.supportCompleteNotice || SUPPORT_COMPLETE_NOTICE
@@ -255,6 +258,7 @@ export default function Page() {
           setCompletedSupportRequestIds((prev) => new Set(prev).add(activeSupportRequestId))
           setSupportRequestId(null)
           setAdminTyping(false)
+          setConnectedAdvisorName(null)
         }
 
         if (nextMessages.length === 0) return
@@ -700,12 +704,23 @@ export default function Page() {
                     {supportAvailability.label === "Live Support Closed" ? uiText.liveSupportClosed : uiText.liveSupport}
                   </span>
                 </button>
-              ) : (
-                <div className="flex shrink-0 items-center gap-1.5 rounded-xl bg-white/10 px-3 py-2 text-xs font-medium text-white/70">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
-                  <span className="hidden sm:inline">
-                    {liveSupportStatusLabel === "Connected" ? uiText.connected : uiText.waitingForAdvisor}
+              ) : connectedAdvisorName ? (
+                <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-green-400/40 bg-green-500/20 px-3 py-2 text-xs font-semibold text-green-200">
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400" />
                   </span>
+                  <span className="hidden sm:inline">{connectedAdvisorName} is online</span>
+                </div>
+              ) : adminTyping ? (
+                <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-green-400/30 bg-green-500/15 px-3 py-2 text-xs font-medium text-green-300">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
+                  <span className="hidden sm:inline">Advisor is here…</span>
+                </div>
+              ) : (
+                <div className="flex shrink-0 items-center gap-1.5 rounded-xl bg-white/10 px-3 py-2 text-xs font-medium text-white/60">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+                  <span className="hidden sm:inline">{uiText.waitingForAdvisor}</span>
                 </div>
               )}
 
