@@ -18,7 +18,17 @@ import { DEFAULT_UI_TEXT, getStaticUIText, type UIText } from "@/lib/uiText"
 const UI_TEXT_CACHE_VERSION = "v4"
 
 const HANDOFF_NOTICE =
-  "Thanks — your request has been sent to the BYU–Hawaii Financial Aid team. An advisor will join when available. Please stay on this chat while you wait."
+  "✓ Your request has been received! A Financial Aid advisor will join this chat shortly — please stay here and don't close this tab. Feel free to share more details about your question while you wait."
+
+const LIVE_SUPPORT_REASSURANCE =
+  "Your message has been received — the advisor can see it and will respond to you shortly. Please stay on this chat!"
+
+const ESCALATION_PHRASE_RE =
+  /\b(speak|talk|chat|connect)\s+(to|with)\s+(a\s+)?(human|real\s+person|person|advisor|someone|anyone|agent|staff)\b|\b(i\s+)?(want|need)\s+(a\s+)?(human|person|advisor|someone|live\s+support)\b|live\s+support\b/i
+
+function isLiveEscalationPhrase(message: string): boolean {
+  return ESCALATION_PHRASE_RE.test(message)
+}
 const SUPPORT_COMPLETE_NOTICE =
   "This live support conversation has been marked complete. You can continue asking financial aid questions or start a new support request if needed."
 const SUPPORT_CLOSED_NOTICE =
@@ -303,7 +313,7 @@ export default function Page() {
     }).catch(() => undefined)
   }
 
-  async function updateStudentTyping(isTyping: boolean) {
+  async function updateStudentTyping(isTyping: boolean, draft = "") {
     if (!supportRequestId) return
 
     await fetch("/api/support/typing", {
@@ -313,6 +323,7 @@ export default function Page() {
         requestId: supportRequestId,
         role: "student",
         isTyping,
+        draft: isTyping ? draft : "",
       }),
     }).catch(() => undefined)
   }
@@ -330,7 +341,9 @@ export default function Page() {
 
     if (value.trim() && !studentTypingRef.current) {
       studentTypingRef.current = true
-      void updateStudentTyping(true)
+    }
+    if (value.trim()) {
+      void updateStudentTyping(true, value)
     }
 
     if (studentTypingOffTimerRef.current) {
@@ -339,7 +352,7 @@ export default function Page() {
 
     studentTypingOffTimerRef.current = setTimeout(() => {
       studentTypingRef.current = false
-      void updateStudentTyping(false)
+      void updateStudentTyping(false, "")
     }, 2500)
   }
 
@@ -376,7 +389,7 @@ export default function Page() {
     setInput("")
     if (studentTypingRef.current) {
       studentTypingRef.current = false
-      void updateStudentTyping(false)
+      void updateStudentTyping(false, "")
     }
     await sendQuestion(trimmed)
   }
@@ -402,6 +415,17 @@ export default function Page() {
           content: trimmed,
         }),
       }).catch(() => undefined)
+
+      if (isLiveEscalationPhrase(trimmed)) {
+        const reassuranceMsg: UIMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          mode: "handoff",
+          content: LIVE_SUPPORT_REASSURANCE,
+          sources: [],
+        }
+        setMessages((prev) => [...prev, reassuranceMsg])
+      }
 
       return
     }
@@ -650,7 +674,7 @@ export default function Page() {
                 <select
                   value={selectedLanguage.code}
                   onChange={(event) => handleLanguageChange(event.target.value)}
-                  className="w-16 border-0 bg-transparent text-xs font-semibold text-white outline-none [color-scheme:dark] sm:w-32"
+                  className="w-16 border-0 bg-transparent text-xs font-semibold text-white outline-none scheme-dark sm:w-32"
                   title={uiText.responseLanguage}
                 >
                   {SUPPORTED_LANGUAGES.map((language) => (

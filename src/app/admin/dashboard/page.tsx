@@ -25,7 +25,7 @@ const STATUS_DOT: Record<string, string> = {
   pending: "bg-amber-400",
   assigned: "bg-blue-400",
   resolved: "bg-emerald-400",
-  closed: "bg-slate-300",
+  closed: "bg-slate-300", 
 }
 
 function timeAgo(dateStr: string) {

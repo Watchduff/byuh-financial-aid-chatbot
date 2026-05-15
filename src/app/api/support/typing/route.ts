@@ -9,6 +9,7 @@ type TypingState = {
   adminTyping: boolean
   studentUpdatedAt: number
   adminUpdatedAt: number
+  studentDraft: string
 }
 
 const typingByRequest = new Map<string, TypingState>()
@@ -18,11 +19,12 @@ function getTypingState(requestId: string): TypingState {
   const current = typingByRequest.get(requestId)
   if (current) return current
 
-  const initial = {
+  const initial: TypingState = {
     studentTyping: false,
     adminTyping: false,
     studentUpdatedAt: 0,
     adminUpdatedAt: 0,
+    studentDraft: "",
   }
   typingByRequest.set(requestId, initial)
   return initial
@@ -30,9 +32,11 @@ function getTypingState(requestId: string): TypingState {
 
 function withExpiredStatuses(state: TypingState) {
   const now = Date.now()
+  const studentTyping = state.studentTyping && now - state.studentUpdatedAt < TYPING_TTL_MS
   return {
-    studentTyping: state.studentTyping && now - state.studentUpdatedAt < TYPING_TTL_MS,
+    studentTyping,
     adminTyping: state.adminTyping && now - state.adminUpdatedAt < TYPING_TTL_MS,
+    studentDraft: studentTyping ? state.studentDraft : "",
   }
 }
 
@@ -41,6 +45,7 @@ export async function POST(req: NextRequest) {
   const requestId = (body.requestId as string | undefined)?.trim()
   const role = body.role as TypingRole | undefined
   const isTyping = Boolean(body.isTyping)
+  const draft = typeof body.draft === "string" ? body.draft : ""
 
   if (!requestId || (role !== "student" && role !== "admin")) {
     return Response.json({ error: "requestId and valid role are required" }, { status: 400 })
@@ -52,6 +57,7 @@ export async function POST(req: NextRequest) {
   if (role === "student") {
     state.studentTyping = isTyping
     state.studentUpdatedAt = now
+    state.studentDraft = isTyping ? draft : ""
   } else {
     state.adminTyping = isTyping
     state.adminUpdatedAt = now
@@ -70,7 +76,10 @@ export async function GET(req: NextRequest) {
   const state = getTypingState(requestId)
   const statuses = withExpiredStatuses(state)
 
-  if (!statuses.studentTyping) state.studentTyping = false
+  if (!statuses.studentTyping) {
+    state.studentTyping = false
+    state.studentDraft = ""
+  }
   if (!statuses.adminTyping) state.adminTyping = false
 
   return Response.json(statuses)

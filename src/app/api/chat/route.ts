@@ -191,6 +191,41 @@ function containsSensitiveInfo(message: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Human escalation request detector
+//
+// Catches explicit requests to talk to a person/advisor BEFORE retrieval
+// so we respond immediately and trigger the live support handoff.
+// ---------------------------------------------------------------------------
+const HUMAN_ESCALATION_PATTERNS: RegExp[] = [
+  // "speak/talk/chat/connect/reach to/with a human/person/advisor/agent/staff/someone"
+  /\b(speak|talk|chat|connect|reach|get)\s+(to|with)\s+(a\s+)?(human|real\s+person|actual\s+person|live\s+person|person|advisor|adviser|staff|agent|representative|rep|someone|anybody|anyone)\b/i,
+  // "i want/need to speak/talk to…"
+  /\b(i\s+(want|need|would\s+like|wanna|gotta)|can\s+i|could\s+i|may\s+i)\s+(to\s+)?(speak|talk|chat)\s+(to|with)\s+(a\s+)?(human|person|advisor|adviser|staff|agent|someone|anyone)\b/i,
+  // "transfer me", "connect me", "put me through"
+  /\b(transfer|connect|put)\s+me\s+(to|through|with)\s+(a\s+)?(human|person|advisor|adviser|agent|staff|someone|live\s+support)\b/i,
+  // "live support", "live chat", "live agent", "live advisor"
+  /\blive\s+(support|chat|agent|advisor|adviser|help|person)\b/i,
+  // "real person", "actual person", "human help", "human agent"
+  /\b(real|actual|live)\s+person\b/i,
+  /\bhuman\s+(help|agent|advisor|adviser|support|assistance)\b/i,
+  // "need more help", "need additional help" — with person/human connotation
+  /\b(i\s+)?(need|want)\s+(more|additional|extra|further)\s+help\s+(from\s+)?(a\s+)?(person|human|advisor|adviser|someone|staff|agent)\b/i,
+  // "is there anyone I can talk to", "can someone help me"
+  /\b(is\s+there\s+(anyone|somebody|someone)\s+(i\s+can\s+)?(talk|speak|chat)\s+(to|with)|can\s+(someone|anybody|a\s+person)\s+(help|assist)\s+me)\b/i,
+  // Standalone short phrases
+  /^\s*(talk\s+to\s+(a\s+)?(human|person|advisor)|speak\s+to\s+(a\s+)?(human|person|advisor)|i\s+want\s+(a\s+)?(human|person|advisor)|connect\s+me|need\s+a\s+(human|person|advisor|agent)|human\s+please|get\s+me\s+(a\s+)?(person|human|advisor))\s*[!?.]*\s*$/i,
+]
+
+const HUMAN_ESCALATION_RESPONSE =
+  "Of course! I'll connect you with a Financial Aid advisor right away. " +
+  "Please hold on — someone from the team will join this chat shortly. " +
+  "In the meantime, feel free to share any details about your question so the advisor can help you faster."
+
+function isHumanEscalationRequest(message: string): boolean {
+  return HUMAN_ESCALATION_PATTERNS.some((pattern) => pattern.test(message))
+}
+
+// ---------------------------------------------------------------------------
 // Out-of-scope guard
 //
 // These patterns catch obviously unrelated requests BEFORE retrieval so no
@@ -606,7 +641,21 @@ export async function POST(req: Request) {
       })
     }
 
-    // Step 1c: Reject clearly out-of-scope questions before touching the DB or OpenAI
+    // Step 1c: Detect explicit requests to speak to a human advisor
+    if (isHumanEscalationRequest(message)) {
+      console.log("[chat] Human escalation request detected — triggering handoff")
+      return NextResponse.json({
+        mode: "grounded" as ResponseMode,
+        message: await localizeResponse(HUMAN_ESCALATION_RESPONSE, language),
+        confidence: "high",
+        confidenceScore: 100,
+        sources: [],
+        sentiment: currentSentiment,
+        escalation: escalation("User explicitly requested to speak with a human advisor.", "high"),
+      })
+    }
+
+    // Step 1d: Reject clearly out-of-scope questions before touching the DB or OpenAI
     if (isOutOfScope(message)) {
       console.log("[chat] Out-of-scope question detected — refusing")
       return NextResponse.json({

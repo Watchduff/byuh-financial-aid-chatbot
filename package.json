@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "predev": "powershell -Command \"Remove-Item -Path './.next/dev/lock' -Force -ErrorAction SilentlyContinue; $p = (Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue).OwningProcess; if ($p) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }; exit 0\"",
-    "dev": "next dev --port 3000",
+    "dev": "concurrently --kill-others-on-fail --names \"next,fastapi\" --prefix-colors \"blue,green\" \"next dev --port 3000\" \".venv\\\\Scripts\\\\python -m uvicorn backend.app.main:app --reload --port 8000\"",
     "build": "next build",
     "start": "next start",
     "fastapi:dev": ".venv\\Scripts\\python -m uvicorn backend.app.main:app --reload --port 8000",
@@ -39,6 +39,7 @@
     "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",

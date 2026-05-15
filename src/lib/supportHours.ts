@@ -12,7 +12,7 @@ export const FINANCIAL_AID_CONTACT = {
 }
 
 export const SUPPORT_HOURS_NOTE =
-  "Live support follows Financial Aid office hours: Mon-Fri, 8 AM-5 PM HST. Closed devotionals and holidays."
+  "Live support follows Financial Aid office hours: Mon-Fri, 8 AM-5 PM HST. Closed during devotional and holidays."
 
 export type SupportAvailability = {
   isAvailable: boolean
@@ -46,9 +46,11 @@ export function getSupportAvailability(date = new Date()): SupportAvailability {
   const opensAt = 8 * 60
   const closesAt = 17 * 60
 
-  // Devotionals and holidays may require manual updates or a future calendar integration.
+  const devotionalBlock =
+    weekday === "Tue" && minutesSinceMidnight >= 11 * 60 && minutesSinceMidnight < 12 * 60 + 30
+
   const isAvailable =
-    isWeekday && minutesSinceMidnight >= opensAt && minutesSinceMidnight < closesAt
+    isWeekday && minutesSinceMidnight >= opensAt && minutesSinceMidnight < closesAt && !devotionalBlock
 
   return {
     isAvailable,

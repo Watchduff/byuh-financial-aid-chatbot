@@ -46,7 +46,7 @@ type ChatHistoryEntry = {
   sources: string[]
 }
 
-type Filter = "pending" | "answered" | "all" | "trash" | "history"
+type Filter = "pending" | "answered" | "all" | "trash" | "history" | "analytics"
 type ConfidenceFilter = "all" | "high" | "low"
 type HistoryGroupBy = "day" | "month"
 
@@ -60,7 +60,7 @@ const STATUS_STYLES: Record<string, string> = {
   deleted: "border-red-200 bg-red-50 text-red-800",
 }
 
-type QueueFilter = Exclude<Filter, "trash" | "history">
+type QueueFilter = Exclude<Filter, "trash" | "history" | "analytics">
 
 const FILTER_OPTIONS: Array<{ id: QueueFilter; label: string; description: string }> = [
   { id: "pending", label: "Pending", description: "Open conversations waiting for staff" },
@@ -78,6 +78,46 @@ const HISTORY_FILTER = {
   id: "history" as const,
   label: "Chat History",
   description: "User questions and chatbot confidence",
+}
+
+const ANALYTICS_FILTER = {
+  id: "analytics" as const,
+  label: "Analytics",
+  description: "Monthly usage statistics and confidence trends",
+}
+
+type AnalyticsMonth = {
+  month: string
+  label: string
+  conversations: number
+  questions: number
+  high: number
+  low: number
+  escalations: number
+}
+
+type AnalyticsData = {
+  year: number
+  months: AnalyticsMonth[]
+  totals: { conversations: number; questions: number; high: number; low: number; escalations: number }
+  availableYears: number[]
+}
+
+type DayAnalytics = {
+  date: string
+  label: string
+  conversations: number
+  questions: number
+  high: number
+  low: number
+  escalations: number
+}
+
+type MonthlyDetail = {
+  month: string
+  label: string
+  days: DayAnalytics[]
+  totals: { conversations: number; questions: number; high: number; low: number; escalations: number }
 }
 
 function formatDate(value: string) {
@@ -160,8 +200,20 @@ export default function AdminConsolePage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [error, setError] = useState("")
   const [typingStatuses, setTypingStatuses] = useState<Record<string, boolean>>({})
+  const [studentDrafts, setStudentDrafts] = useState<Record<string, string>>({})
+  const [suggestedReplies, setSuggestedReplies] = useState<Record<string, string[]>>({})
+  const [suggestingId, setSuggestingId] = useState<string | null>(null)
   const adminTypingRefs = useRef<Record<string, boolean>>({})
   const adminTypingOffTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  const transcriptBottomRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const prevMessageCountsRef = useRef<Record<string, number>>({})
+  const [analyticsYear, setAnalyticsYear] = useState(new Date().getFullYear())
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
+  const [analyticsView, setAnalyticsView] = useState<"yearly" | "monthly">("yearly")
+  const [selectedAnalyticsMonth, setSelectedAnalyticsMonth] = useState<string | null>(null)
+  const [monthlyDetail, setMonthlyDetail] = useState<MonthlyDetail | null>(null)
+  const [monthlyDetailLoading, setMonthlyDetailLoading] = useState(false)
 
   const fetchRequests = useCallback(async () => {
     setError("")
@@ -188,6 +240,20 @@ export default function AdminConsolePage() {
     }
   }, [])
 
+  const fetchAnalytics = useCallback(async (year: number) => {
+    setAnalyticsLoading(true)
+    try {
+      const res = await fetch(`/api/analytics/monthly?year=${year}`)
+      if (!res.ok) throw new Error()
+      const data = await res.json()
+      setAnalyticsData(data)
+    } catch {
+      // silently fail
+    } finally {
+      setAnalyticsLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     fetchRequests()
     fetchChatHistory()
@@ -199,36 +265,72 @@ export default function AdminConsolePage() {
   }, [fetchChatHistory, fetchRequests])
 
   useEffect(() => {
-    const activeExpandedIds = requests
-      .filter((request) => expandedIds.has(request.id) && statusLabel(request.status) === "Pending")
+    if (filter === "analytics") fetchAnalytics(analyticsYear)
+  }, [filter, analyticsYear, fetchAnalytics])
+
+  useEffect(() => {
+    if (!selectedAnalyticsMonth) {
+      setMonthlyDetail(null)
+      return
+    }
+    setMonthlyDetailLoading(true)
+    fetch(`/api/analytics/monthly-detail?month=${selectedAnalyticsMonth}`)
+      .then((res) => res.json())
+      .then((data: MonthlyDetail) => setMonthlyDetail(data))
+      .catch(() => undefined)
+      .finally(() => setMonthlyDetailLoading(false))
+  }, [selectedAnalyticsMonth])
+
+  useEffect(() => {
+    const pendingIds = requests
+      .filter((request) => statusLabel(request.status) === "Pending")
       .map((request) => request.id)
 
-    if (activeExpandedIds.length === 0) {
+    if (pendingIds.length === 0) {
       setTypingStatuses({})
+      setStudentDrafts({})
       return
     }
 
     async function pollTypingStatuses() {
-      const entries = await Promise.all(
-        activeExpandedIds.map(async (requestId) => {
+      const results = await Promise.all(
+        pendingIds.map(async (requestId) => {
           try {
             const res = await fetch(`/api/support/typing?requestId=${requestId}`)
-            if (!res.ok) return [requestId, false] as const
+            if (!res.ok) return { requestId, typing: false, draft: "" }
             const data = await res.json()
-            return [requestId, Boolean(data.studentTyping)] as const
+            return {
+              requestId,
+              typing: Boolean(data.studentTyping),
+              draft: typeof data.studentDraft === "string" ? data.studentDraft : "",
+            }
           } catch {
-            return [requestId, false] as const
+            return { requestId, typing: false, draft: "" }
           }
         })
       )
 
-      setTypingStatuses(Object.fromEntries(entries))
+      setTypingStatuses(Object.fromEntries(results.map((r) => [r.requestId, r.typing])))
+      setStudentDrafts(Object.fromEntries(results.map((r) => [r.requestId, r.draft])))
     }
 
     pollTypingStatuses()
     const interval = setInterval(pollTypingStatuses, 1500)
     return () => clearInterval(interval)
-  }, [expandedIds, requests])
+  }, [requests])
+
+  useEffect(() => {
+    expandedIds.forEach((id) => {
+      const request = requests.find((r) => r.id === id)
+      const currentCount = (request?.chatHistory?.length ?? 0) + (request?.adminMessages?.length ?? 0)
+      const prevCount = prevMessageCountsRef.current[id]
+      // Scroll only on first expand or when a new message arrives
+      if (prevCount === undefined || currentCount > prevCount) {
+        transcriptBottomRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "end" })
+      }
+      prevMessageCountsRef.current[id] = currentCount
+    })
+  }, [requests, expandedIds])
 
   const counts = useMemo(() => {
     const visible = requests.filter((request) => request.status !== "deleted")
@@ -334,10 +436,13 @@ export default function AdminConsolePage() {
     ? TRASH_FILTER
     : filter === "history"
       ? HISTORY_FILTER
-      : FILTER_OPTIONS.find((option) => option.id === filter) ?? FILTER_OPTIONS[0]
+      : filter === "analytics"
+        ? ANALYTICS_FILTER
+        : FILTER_OPTIONS.find((option) => option.id === filter) ?? FILTER_OPTIONS[0]
   const recentRequests = requests.filter((request) => request.status !== "deleted").slice(0, 5)
   const isTrashView = filter === "trash"
   const isHistoryView = filter === "history"
+  const isAnalyticsView = filter === "analytics"
 
   useEffect(() => {
     if (!isHistoryView) return
@@ -357,6 +462,11 @@ export default function AdminConsolePage() {
         next.delete(id)
       } else {
         next.add(id)
+        // auto-fetch suggestions when expanding a pending request
+        const request = requests.find((r) => r.id === id)
+        if (request && statusLabel(request.status) === "Pending" && !suggestedReplies[id]) {
+          void fetchSuggestedReplies(id)
+        }
       }
       return next
     })
@@ -470,6 +580,221 @@ export default function AdminConsolePage() {
     }
   }
 
+  async function fetchSuggestedReplies(requestId: string) {
+    setSuggestingId(requestId)
+    try {
+      const res = await fetch("/api/support/suggest-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestId }),
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      if (Array.isArray(data.suggestions)) {
+        setSuggestedReplies((prev) => ({ ...prev, [requestId]: data.suggestions }))
+      }
+    } catch {
+      // silently fail — suggestions are optional
+    } finally {
+      setSuggestingId(null)
+    }
+  }
+
+  function printAnalyticsReport() {
+    if (!analyticsData) return
+    const { year, months, totals } = analyticsData
+    const highPct = totals.questions > 0 ? Math.round((totals.high / totals.questions) * 100) : 0
+
+    const monthRows = months.map((m) => {
+      const pct = m.questions > 0 ? Math.round((m.high / m.questions) * 100) : 0
+      return `<tr>
+        <td>${m.label}</td>
+        <td>${m.conversations}</td>
+        <td>${m.questions}</td>
+        <td style="color:#059669;font-weight:${m.high > 0 ? "600" : "400"}">${m.high}</td>
+        <td style="color:#d97706;font-weight:${m.low > 0 ? "600" : "400"}">${m.low}</td>
+        <td>${m.questions > 0 ? pct + "%" : "—"}</td>
+        <td style="color:#dc2626;font-weight:${m.escalations > 0 ? "600" : "400"}">${m.escalations}</td>
+      </tr>`
+    }).join("")
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>BYU-Hawaii Financial Aid — Analytics ${year}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 12px; color: #1e293b; padding: 32px; }
+    h1 { font-size: 20px; font-weight: 700; color: #9E1B34; }
+    .meta { color: #64748b; font-size: 11px; margin-top: 4px; margin-bottom: 28px; }
+    .section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: #94a3b8; margin-bottom: 10px; }
+    .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 32px; }
+    .card { border: 1px solid #e5dede; border-radius: 8px; padding: 12px 16px; min-width: 130px; }
+    .card-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: #94a3b8; }
+    .card-value { font-size: 28px; font-weight: 800; color: #9E1B34; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 8px 12px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: #64748b; border-top: 2px solid #e5dede; border-bottom: 1px solid #e5dede; background: #f8fafc; }
+    th:not(:first-child) { text-align: right; }
+    td { padding: 9px 12px; border-bottom: 1px solid #f0eaea; font-size: 12px; }
+    td:not(:first-child) { text-align: right; }
+    .tfoot-row td { font-weight: 700; border-top: 2px solid #e5dede; border-bottom: none; background: #f8fafc; font-size: 12px; }
+    .footer { margin-top: 32px; font-size: 10px; color: #94a3b8; border-top: 1px solid #e5dede; padding-top: 12px; }
+    @media print { body { padding: 16px; } }
+  </style>
+</head>
+<body>
+  <h1>BYU-Hawaii Financial Aid &amp; Scholarships</h1>
+  <p class="meta">Analytics Report &nbsp;·&nbsp; Year ${year} &nbsp;·&nbsp; Generated ${new Date().toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}</p>
+
+  <p class="section-label">Yearly Summary — ${year}</p>
+  <div class="cards">
+    <div class="card"><div class="card-label">Conversations</div><div class="card-value">${totals.conversations}</div></div>
+    <div class="card"><div class="card-label">Questions Asked</div><div class="card-value">${totals.questions}</div></div>
+    <div class="card"><div class="card-label">High Confidence</div><div class="card-value" style="color:#059669">${totals.high}</div></div>
+    <div class="card"><div class="card-label">Low Confidence</div><div class="card-value" style="color:#d97706">${totals.low}</div></div>
+    <div class="card"><div class="card-label">Escalations</div><div class="card-value" style="color:#dc2626">${totals.escalations}</div></div>
+    <div class="card"><div class="card-label">High Confidence %</div><div class="card-value">${highPct}%</div></div>
+  </div>
+
+  <p class="section-label">Monthly Breakdown — ${year}</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Month</th>
+        <th>Conversations</th>
+        <th>Questions</th>
+        <th>High Confidence</th>
+        <th>Low Confidence</th>
+        <th>High %</th>
+        <th>Escalations</th>
+      </tr>
+    </thead>
+    <tbody>${monthRows}</tbody>
+    <tfoot>
+      <tr class="tfoot-row">
+        <td>Year Total</td>
+        <td>${totals.conversations}</td>
+        <td>${totals.questions}</td>
+        <td style="color:#059669">${totals.high}</td>
+        <td style="color:#d97706">${totals.low}</td>
+        <td>${highPct}%</td>
+        <td style="color:#dc2626">${totals.escalations}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <p class="footer">BYU-Hawaii Financial Aid &amp; Scholarships &nbsp;·&nbsp; (808) 675-3316 &nbsp;·&nbsp; financialaid@byuh.edu &nbsp;·&nbsp; Lorenzo Snow Building Room 180</p>
+</body>
+</html>`
+
+    const win = window.open("", "_blank", "width=960,height=720")
+    if (win) {
+      win.document.write(html)
+      win.document.close()
+      win.focus()
+      win.print()
+    }
+  }
+
+  function printMonthlyReport() {
+    if (!monthlyDetail) return
+    const { label, days, totals } = monthlyDetail
+    const highPct = totals.questions > 0 ? Math.round((totals.high / totals.questions) * 100) : 0
+    const activeDays = days.filter((d) => d.questions > 0 || d.escalations > 0)
+
+    const dayRows = activeDays.map((d) => {
+      const pct = d.questions > 0 ? Math.round((d.high / d.questions) * 100) : 0
+      return `<tr>
+        <td>${d.label}</td>
+        <td>${d.conversations}</td>
+        <td>${d.questions}</td>
+        <td style="color:#059669;font-weight:${d.high > 0 ? "600" : "400"}">${d.high}</td>
+        <td style="color:#d97706;font-weight:${d.low > 0 ? "600" : "400"}">${d.low}</td>
+        <td>${d.questions > 0 ? pct + "%" : "—"}</td>
+        <td style="color:#dc2626;font-weight:${d.escalations > 0 ? "600" : "400"}">${d.escalations}</td>
+      </tr>`
+    }).join("") || `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:24px">No activity recorded this month.</td></tr>`
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>BYU-Hawaii Financial Aid — ${label} Report</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; font-size: 12px; color: #1e293b; padding: 32px; }
+    h1 { font-size: 20px; font-weight: 700; color: #9E1B34; }
+    .meta { color: #64748b; font-size: 11px; margin-top: 4px; margin-bottom: 28px; }
+    .section-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: #94a3b8; margin-bottom: 10px; }
+    .cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 32px; }
+    .card { border: 1px solid #e5dede; border-radius: 8px; padding: 12px 16px; min-width: 120px; }
+    .card-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: #94a3b8; }
+    .card-value { font-size: 28px; font-weight: 800; color: #9E1B34; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 8px 12px; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: #64748b; border-top: 2px solid #e5dede; border-bottom: 1px solid #e5dede; background: #f8fafc; }
+    th:not(:first-child) { text-align: right; }
+    td { padding: 9px 12px; border-bottom: 1px solid #f0eaea; font-size: 12px; }
+    td:not(:first-child) { text-align: right; }
+    .tfoot-row td { font-weight: 700; border-top: 2px solid #e5dede; border-bottom: none; background: #f8fafc; }
+    .footer { margin-top: 32px; font-size: 10px; color: #94a3b8; border-top: 1px solid #e5dede; padding-top: 12px; }
+    @media print { body { padding: 16px; } }
+  </style>
+</head>
+<body>
+  <h1>BYU-Hawaii Financial Aid &amp; Scholarships</h1>
+  <p class="meta">Monthly Analytics Report &nbsp;·&nbsp; ${label} &nbsp;·&nbsp; Generated ${new Date().toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}</p>
+
+  <p class="section-label">Monthly Summary — ${label}</p>
+  <div class="cards">
+    <div class="card"><div class="card-label">Conversations</div><div class="card-value">${totals.conversations}</div></div>
+    <div class="card"><div class="card-label">Questions Asked</div><div class="card-value">${totals.questions}</div></div>
+    <div class="card"><div class="card-label">High Confidence</div><div class="card-value" style="color:#059669">${totals.high}</div></div>
+    <div class="card"><div class="card-label">Low Confidence</div><div class="card-value" style="color:#d97706">${totals.low}</div></div>
+    <div class="card"><div class="card-label">Escalations</div><div class="card-value" style="color:#dc2626">${totals.escalations}</div></div>
+    <div class="card"><div class="card-label">High Confidence %</div><div class="card-value">${highPct}%</div></div>
+  </div>
+
+  <p class="section-label">Daily Breakdown — ${label} (${activeDays.length} active day${activeDays.length !== 1 ? "s" : ""})</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Day</th>
+        <th>Conversations</th>
+        <th>Questions</th>
+        <th>High Confidence</th>
+        <th>Low Confidence</th>
+        <th>High %</th>
+        <th>Escalations</th>
+      </tr>
+    </thead>
+    <tbody>${dayRows}</tbody>
+    <tfoot>
+      <tr class="tfoot-row">
+        <td>Month Total</td>
+        <td>${totals.conversations}</td>
+        <td>${totals.questions}</td>
+        <td style="color:#059669">${totals.high}</td>
+        <td style="color:#d97706">${totals.low}</td>
+        <td>${highPct}%</td>
+        <td style="color:#dc2626">${totals.escalations}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <p class="footer">BYU-Hawaii Financial Aid &amp; Scholarships &nbsp;·&nbsp; (808) 675-3316 &nbsp;·&nbsp; financialaid@byuh.edu &nbsp;·&nbsp; Lorenzo Snow Building Room 180</p>
+</body>
+</html>`
+
+    const win = window.open("", "_blank", "width=960,height=720")
+    if (win) {
+      win.document.write(html)
+      win.document.close()
+      win.focus()
+      win.print()
+    }
+  }
+
   function openRecentRequest(request: SupportRequest) {
     setFilter(statusLabel(request.status).toLowerCase() as QueueFilter)
     setExpandedIds((prev) => new Set(prev).add(request.id))
@@ -577,32 +902,62 @@ export default function AdminConsolePage() {
               <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">
                 Insights
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setFilter("history")
-                  setSidebarOpen(false)
-                }}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${
-                  isHistoryView
-                    ? "bg-white text-[#9E1B34] shadow-sm"
-                    : "text-white/72 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                <span
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
-                    isHistoryView ? "bg-[#9E1B34]/10" : "bg-white/10"
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilter("history")
+                    setSidebarOpen(false)
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${
+                    isHistoryView
+                      ? "bg-white text-[#9E1B34] shadow-sm"
+                      : "text-white/72 hover:bg-white/10 hover:text-white"
                   }`}
                 >
-                  {historyCounts.all}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">{HISTORY_FILTER.label}</span>
-                  <span className={`block truncate text-[11px] ${isHistoryView ? "text-[#9E1B34]/65" : "text-white/45"}`}>
-                    {HISTORY_FILTER.description}
+                  <span
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
+                      isHistoryView ? "bg-[#9E1B34]/10" : "bg-white/10"
+                    }`}
+                  >
+                    {historyCounts.all}
                   </span>
-                </span>
-              </button>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">{HISTORY_FILTER.label}</span>
+                    <span className={`block truncate text-[11px] ${isHistoryView ? "text-[#9E1B34]/65" : "text-white/45"}`}>
+                      {HISTORY_FILTER.description}
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilter("analytics")
+                    setSidebarOpen(false)
+                  }}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${
+                    isAnalyticsView
+                      ? "bg-white text-[#9E1B34] shadow-sm"
+                      : "text-white/72 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <span
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
+                      isAnalyticsView ? "bg-[#9E1B34]/10" : "bg-white/10"
+                    }`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                      <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM9.5 6A1.5 1.5 0 0 0 8 7.5v9a1.5 1.5 0 0 0 3 0v-9A1.5 1.5 0 0 0 9.5 6ZM3.5 10A1.5 1.5 0 0 0 2 11.5v5a1.5 1.5 0 0 0 3 0v-5A1.5 1.5 0 0 0 3.5 10Z" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">{ANALYTICS_FILTER.label}</span>
+                    <span className={`block truncate text-[11px] ${isAnalyticsView ? "text-[#9E1B34]/65" : "text-white/45"}`}>
+                      {ANALYTICS_FILTER.description}
+                    </span>
+                  </span>
+                </button>
+              </div>
             </div>
 
             <div className="mt-6 border-t border-white/10 pt-4">
@@ -704,10 +1059,10 @@ export default function AdminConsolePage() {
               </div>
               <div className="hidden rounded-lg border border-[#e5dede] bg-white px-3 py-2 text-right shadow-sm sm:block">
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                  {isHistoryView ? "Questions" : "Visible"}
+                  {isHistoryView ? "Questions" : isAnalyticsView ? "Year" : "Visible"}
                 </p>
                 <p className="text-lg font-bold text-[#9E1B34]">
-                  {isHistoryView ? visibleChatHistory.length : visibleRequests.length}
+                  {isHistoryView ? visibleChatHistory.length : isAnalyticsView ? analyticsYear : visibleRequests.length}
                 </p>
               </div>
             </div>
@@ -749,6 +1104,264 @@ export default function AdminConsolePage() {
             {loading ? (
               <div className="rounded-lg border border-[#e5dede] bg-white py-16 text-center text-sm text-slate-400">
                 Loading support requests...
+              </div>
+            ) : isAnalyticsView ? (
+              <div className="space-y-5">
+                <section className="rounded-lg border border-[#d8e0e8] bg-white px-6 py-6 shadow-sm">
+                  {/* Header row: view toggle + year + print */}
+                  <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-1 rounded-xl border border-[#e5dede] bg-slate-50 p-1">
+                      <button
+                        type="button"
+                        onClick={() => setAnalyticsView("yearly")}
+                        className={`rounded-lg px-5 py-2 text-sm font-bold transition ${
+                          analyticsView === "yearly"
+                            ? "bg-[#9E1B34] text-white shadow-sm"
+                            : "text-slate-500 hover:text-slate-800"
+                        }`}
+                      >
+                        Yearly
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAnalyticsView("monthly")
+                          if (!selectedAnalyticsMonth && analyticsData) {
+                            const now = new Date()
+                            const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+                            const match = analyticsData.months.find((m) => m.month === key)
+                            setSelectedAnalyticsMonth(match ? key : analyticsData.months[0].month)
+                          }
+                        }}
+                        className={`rounded-lg px-5 py-2 text-sm font-bold transition ${
+                          analyticsView === "monthly"
+                            ? "bg-[#9E1B34] text-white shadow-sm"
+                            : "text-slate-500 hover:text-slate-800"
+                        }`}
+                      >
+                        Monthly
+                      </button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Year buttons — show data years or a sensible fallback range */}
+                      {(analyticsData?.availableYears ?? Array.from({ length: 3 }, (_, i) => new Date().getFullYear() - 2 + i).reverse()).map((y) => (
+                        <button
+                          key={y}
+                          type="button"
+                          onClick={() => {
+                            setAnalyticsYear(y)
+                            setSelectedAnalyticsMonth(null)
+                          }}
+                          className={`rounded-lg border px-4 py-2 text-sm font-bold transition ${
+                            analyticsYear === y
+                              ? "border-[#9E1B34] bg-[#9E1B34] text-white"
+                              : "border-[#e5dede] bg-white text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          {y}
+                        </button>
+                      ))}
+
+                      {/* Print button — context-aware */}
+                      {analyticsData && (
+                        analyticsView === "yearly" ? (
+                          <button
+                            type="button"
+                            onClick={printAnalyticsReport}
+                            className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                              <path fillRule="evenodd" d="M5 4v3H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2h1a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-1V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1Zm2 0h6v3H7V4Zm-1 9v-1h8v3H6v-2Zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" clipRule="evenodd" />
+                            </svg>
+                            Print Yearly Report
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={printMonthlyReport}
+                            disabled={!monthlyDetail}
+                            className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                              <path fillRule="evenodd" d="M5 4v3H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2h1a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-1V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1Zm2 0h6v3H7V4Zm-1 9v-1h8v3H6v-2Zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" clipRule="evenodd" />
+                            </svg>
+                            Print Monthly Report
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+
+                  {analyticsLoading ? (
+                    <p className="py-10 text-center text-sm text-slate-400">Loading analytics...</p>
+                  ) : analyticsData ? (
+                    analyticsView === "yearly" ? (
+                      <>
+                        {/* Yearly totals */}
+                        <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                          Yearly Summary — {analyticsData.year}
+                        </p>
+                        <div className="mb-8 grid gap-3 sm:grid-cols-5">
+                          {[
+                            { label: "Conversations", value: analyticsData.totals.conversations },
+                            { label: "Questions", value: analyticsData.totals.questions },
+                            { label: "High Confidence", value: analyticsData.totals.high },
+                            { label: "Low Confidence", value: analyticsData.totals.low },
+                            { label: "Escalations", value: analyticsData.totals.escalations },
+                          ].map((item) => (
+                            <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-4 py-4">
+                              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                              <p className="mt-1 text-2xl font-bold text-[#9E1B34]">{item.value}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Monthly table — all months visible */}
+                        <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                          Monthly Breakdown — {analyticsData.year}
+                        </p>
+                        <div className="overflow-hidden rounded-lg border border-[#e5dede]">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-[#e5dede] bg-slate-50">
+                                <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Month</th>
+                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Conversations</th>
+                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Questions</th>
+                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">High</th>
+                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Low</th>
+                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Escalations</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {analyticsData.months.map((row) => (
+                                <tr key={row.month} className="border-b border-[#f0eaea] last:border-0">
+                                  <td className="px-4 py-3 font-semibold text-slate-800">{row.label}</td>
+                                  <td className="px-4 py-3 text-right text-slate-700">{row.conversations}</td>
+                                  <td className="px-4 py-3 text-right text-slate-700">{row.questions}</td>
+                                  <td className="px-4 py-3 text-right">
+                                    <span className={row.high > 0 ? "font-semibold text-emerald-700" : "text-slate-300"}>{row.high}</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <span className={row.low > 0 ? "font-semibold text-amber-700" : "text-slate-300"}>{row.low}</span>
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <span className={row.escalations > 0 ? "font-semibold text-red-700" : "text-slate-300"}>{row.escalations}</span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="border-t-2 border-[#e5dede] bg-slate-50">
+                                <td className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Year Total</td>
+                                <td className="px-4 py-3 text-right font-bold text-slate-800">{analyticsData.totals.conversations}</td>
+                                <td className="px-4 py-3 text-right font-bold text-slate-800">{analyticsData.totals.questions}</td>
+                                <td className="px-4 py-3 text-right font-bold text-emerald-700">{analyticsData.totals.high}</td>
+                                <td className="px-4 py-3 text-right font-bold text-amber-700">{analyticsData.totals.low}</td>
+                                <td className="px-4 py-3 text-right font-bold text-red-700">{analyticsData.totals.escalations}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </>
+                    ) : (
+                      /* Monthly view */
+                      <>
+                        <div className="mb-5 flex flex-wrap items-center gap-3">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Select Month</p>
+                          <select
+                            value={selectedAnalyticsMonth ?? ""}
+                            onChange={(e) => setSelectedAnalyticsMonth(e.target.value)}
+                            className="rounded-lg border border-[#e5dede] bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-[#9E1B34]/50 focus:ring-2 focus:ring-[#9E1B34]/10"
+                          >
+                            {analyticsData.months.map((m) => (
+                              <option key={m.month} value={m.month}>{m.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {monthlyDetailLoading ? (
+                          <p className="py-10 text-center text-sm text-slate-400">Loading monthly data...</p>
+                        ) : monthlyDetail ? (
+                          <>
+                            <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                              Monthly Summary — {monthlyDetail.label}
+                            </p>
+                            <div className="mb-8 grid gap-3 sm:grid-cols-5">
+                              {[
+                                { label: "Conversations", value: monthlyDetail.totals.conversations },
+                                { label: "Questions", value: monthlyDetail.totals.questions },
+                                { label: "High Confidence", value: monthlyDetail.totals.high },
+                                { label: "Low Confidence", value: monthlyDetail.totals.low },
+                                { label: "Escalations", value: monthlyDetail.totals.escalations },
+                              ].map((item) => (
+                                <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-4 py-4">
+                                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                                  <p className="mt-1 text-2xl font-bold text-[#9E1B34]">{item.value}</p>
+                                </div>
+                              ))}
+                            </div>
+
+                            <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                              Daily Breakdown — {monthlyDetail.label}
+                            </p>
+                            <div className="overflow-hidden rounded-lg border border-[#e5dede]">
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="border-b border-[#e5dede] bg-slate-50">
+                                    <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Day</th>
+                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Conversations</th>
+                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Questions</th>
+                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">High</th>
+                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Low</th>
+                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Escalations</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {monthlyDetail.days.filter((d) => d.questions > 0 || d.escalations > 0).map((d) => (
+                                    <tr key={d.date} className="border-b border-[#f0eaea] last:border-0">
+                                      <td className="px-4 py-3 font-semibold text-slate-800">{d.label}</td>
+                                      <td className="px-4 py-3 text-right text-slate-700">{d.conversations}</td>
+                                      <td className="px-4 py-3 text-right text-slate-700">{d.questions}</td>
+                                      <td className="px-4 py-3 text-right">
+                                        <span className={d.high > 0 ? "font-semibold text-emerald-700" : "text-slate-300"}>{d.high}</span>
+                                      </td>
+                                      <td className="px-4 py-3 text-right">
+                                        <span className={d.low > 0 ? "font-semibold text-amber-700" : "text-slate-300"}>{d.low}</span>
+                                      </td>
+                                      <td className="px-4 py-3 text-right">
+                                        <span className={d.escalations > 0 ? "font-semibold text-red-700" : "text-slate-300"}>{d.escalations}</span>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                  {monthlyDetail.days.filter((d) => d.questions > 0 || d.escalations > 0).length === 0 && (
+                                    <tr>
+                                      <td colSpan={6} className="px-4 py-10 text-center text-slate-400">No activity recorded this month.</td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="border-t-2 border-[#e5dede] bg-slate-50">
+                                    <td className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Month Total</td>
+                                    <td className="px-4 py-3 text-right font-bold text-slate-800">{monthlyDetail.totals.conversations}</td>
+                                    <td className="px-4 py-3 text-right font-bold text-slate-800">{monthlyDetail.totals.questions}</td>
+                                    <td className="px-4 py-3 text-right font-bold text-emerald-700">{monthlyDetail.totals.high}</td>
+                                    <td className="px-4 py-3 text-right font-bold text-amber-700">{monthlyDetail.totals.low}</td>
+                                    <td className="px-4 py-3 text-right font-bold text-red-700">{monthlyDetail.totals.escalations}</td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="py-10 text-center text-sm text-slate-400">Select a month above to view daily data.</p>
+                        )}
+                      </>
+                    )
+                  ) : (
+                    <p className="py-10 text-center text-sm text-slate-400">No analytics data available.</p>
+                  )}
+                </section>
               </div>
             ) : isHistoryView ? (
               historyConversations.length === 0 ? (
@@ -1043,10 +1656,17 @@ export default function AdminConsolePage() {
                     })),
                   ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 
+                  const requestCreatedAt = new Date(request.createdAt).getTime()
+                  const preHistory = timeline.filter((m) => new Date(m.createdAt).getTime() < requestCreatedAt)
+                  const liveMessages = timeline.filter((m) => new Date(m.createdAt).getTime() >= requestCreatedAt)
+                  const isLive = label === "Pending" && !isTrashView
+
                   return (
                     <article
                       key={request.id}
-                      className="rounded-lg border border-[#e5dede] bg-white p-5 shadow-sm"
+                      className={`rounded-lg border bg-white p-5 shadow-sm transition-all ${
+                        isLive && expanded ? "border-[#9E1B34]/30 ring-1 ring-[#9E1B34]/15" : "border-[#e5dede]"
+                      }`}
                     >
                       <div className="flex flex-wrap items-start gap-3">
                         <span
@@ -1054,6 +1674,12 @@ export default function AdminConsolePage() {
                         >
                           {isTrashView ? `Deleted ${label}` : label}
                         </span>
+                        {isLive && (
+                          <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                            LIVE
+                          </span>
+                        )}
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                             Requested {formatDate(request.createdAt)}
@@ -1070,6 +1696,24 @@ export default function AdminConsolePage() {
                             <span className="font-semibold text-slate-800">Escalation reason:</span>{" "}
                             {request.chatbotNote}
                           </p>
+
+                          {/* Live draft preview on collapsed card */}
+                          {isLive && !expanded && typingStatuses[request.id] && (
+                            <div className="mt-2 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                              <span className="flex shrink-0 items-center gap-1 pt-0.5">
+                                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.3s]" />
+                                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.15s]" />
+                                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500" />
+                              </span>
+                              {studentDrafts[request.id] ? (
+                                <p className="min-w-0 text-sm italic text-emerald-800">
+                                  &ldquo;{studentDrafts[request.id]}&rdquo;
+                                </p>
+                              ) : (
+                                <p className="text-sm text-emerald-700">Student is typing…</p>
+                              )}
+                            </div>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -1085,64 +1729,165 @@ export default function AdminConsolePage() {
                           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                             <div>
                               <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
-                                Conversation transcript
+                                Live Chat
                               </p>
                               <p className="mt-1 text-xs text-slate-400">
-                                User and chatbot messages before handoff, followed by advisor replies.
+                                {preHistory.length > 0 ? `${preHistory.length} messages before escalation, ` : ""}
+                                {liveMessages.length} live message{liveMessages.length !== 1 ? "s" : ""}
                               </p>
                             </div>
                             <span className="rounded-full border border-[#e5dede] bg-white px-3 py-1 text-xs font-semibold text-slate-500">
-                              {timeline.length} messages
+                              {timeline.length} total
                             </span>
                           </div>
-                          <div className="space-y-3">
+
+                          <div className="max-h-96 overflow-y-auto rounded-lg border border-[#e5dede] bg-slate-50 p-3">
                             {timeline.length === 0 ? (
-                              <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-400">
+                              <p className="px-3 py-6 text-center text-sm text-slate-400">
                                 No conversation history was saved for this request.
                               </p>
                             ) : (
-                              timeline.map((message) => (
-                                <div
-                                  key={message.id}
-                                  className={`rounded-lg border px-4 py-3 ${
-                                    message.role === "USER"
-                                      ? "border-[#f3ccd4] bg-[#fff7f7]"
-                                      : message.role === "ADMIN"
-                                        ? "border-blue-200 bg-blue-50"
-                                        : "border-slate-200 bg-slate-50"
-                                  }`}
-                                >
-                                  <div className="mb-1 flex items-center justify-between gap-3">
-                                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                                      {message.role}
-                                    </span>
-                                    <span className="text-xs text-slate-400">
-                                      {formatDate(message.createdAt)}
-                                    </span>
-                                  </div>
-                                  <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
-                                    {message.content}
+                              <div className="space-y-2">
+                                {preHistory.length > 0 && (
+                                  <>
+                                    {preHistory.map((message) => (
+                                      <div
+                                        key={message.id}
+                                        className={`rounded-lg border px-3 py-2.5 opacity-70 ${
+                                          message.role === "USER"
+                                            ? "border-[#f3ccd4] bg-[#fff7f7]"
+                                            : "border-slate-200 bg-white"
+                                        }`}
+                                      >
+                                        <div className="mb-1 flex items-center justify-between gap-3">
+                                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                            {message.role === "USER" ? "Student" : "Chatbot"}
+                                          </span>
+                                          <span className="text-[10px] text-slate-400">{formatDate(message.createdAt)}</span>
+                                        </div>
+                                        <p className="whitespace-pre-wrap text-sm leading-5 text-slate-600">{message.content}</p>
+                                      </div>
+                                    ))}
+                                    <div className="flex items-center gap-2 py-2">
+                                      <div className="h-px flex-1 bg-[#9E1B34]/20" />
+                                      <span className="rounded-full bg-[#9E1B34]/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#9E1B34]">
+                                        Live Support Started — {formatDate(request.createdAt)}
+                                      </span>
+                                      <div className="h-px flex-1 bg-[#9E1B34]/20" />
+                                    </div>
+                                  </>
+                                )}
+
+                                {liveMessages.length === 0 ? (
+                                  <p className="py-4 text-center text-sm text-slate-400">
+                                    Waiting for the student to send a message...
                                   </p>
-                                </div>
-                              ))
+                                ) : (
+                                  liveMessages.map((message) => (
+                                    <div
+                                      key={message.id}
+                                      className={`rounded-lg border px-3 py-2.5 ${
+                                        message.role === "USER"
+                                          ? "border-[#f3ccd4] bg-[#fff7f7]"
+                                          : message.role === "ADMIN"
+                                            ? "border-blue-200 bg-blue-50"
+                                            : "border-slate-200 bg-white"
+                                      }`}
+                                    >
+                                      <div className="mb-1 flex items-center justify-between gap-3">
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                                          {message.role === "USER" ? "Student" : message.role === "ADMIN" ? "Advisor" : "Chatbot"}
+                                        </span>
+                                        <span className="text-[10px] text-slate-400">{formatDate(message.createdAt)}</span>
+                                      </div>
+                                      <p className="whitespace-pre-wrap text-sm leading-5 text-slate-800">{message.content}</p>
+                                    </div>
+                                  ))
+                                )}
+
+                                <div ref={(el) => { transcriptBottomRefs.current[request.id] = el }} />
+                              </div>
                             )}
                           </div>
 
                           {!isTrashView && (
                             <div className="mt-5 rounded-lg border border-[#e5dede] bg-[#fdf8f8] p-4">
                               {label === "Pending" && typingStatuses[request.id] && (
-                                <div className="mb-3">
-                                  <InlineTypingIndicator label="User is typing..." />
+                                <div className="mb-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                                  <span className="flex shrink-0 items-center gap-1 pt-1">
+                                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.3s]" />
+                                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.15s]" />
+                                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500" />
+                                  </span>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-semibold text-emerald-700">Student is typing…</p>
+                                    {studentDrafts[request.id] && (
+                                      <p className="mt-0.5 break-words text-sm italic text-emerald-800">
+                                        &ldquo;{studentDrafts[request.id]}&rdquo;
+                                      </p>
+                                    )}
+                                  </div>
                                 </div>
                               )}
+                              {/* Suggested replies */}
+                              {label === "Pending" && (
+                                <div className="mb-3">
+                                  <div className="mb-2 flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                      Suggested Replies
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => fetchSuggestedReplies(request.id)}
+                                      disabled={suggestingId === request.id}
+                                      className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-[#9E1B34] transition hover:bg-[#fff7f7] disabled:opacity-50"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
+                                        <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
+                                      </svg>
+                                      {suggestingId === request.id ? "Generating…" : "Regenerate"}
+                                    </button>
+                                  </div>
+
+                                  {suggestingId === request.id && !suggestedReplies[request.id] ? (
+                                    <div className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-slate-50 px-3 py-3 text-xs text-slate-400">
+                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 animate-spin">
+                                        <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
+                                      </svg>
+                                      Generating suggestions…
+                                    </div>
+                                  ) : suggestedReplies[request.id]?.length > 0 ? (
+                                    <div className="space-y-2">
+                                      {suggestedReplies[request.id].map((suggestion, i) => (
+                                        <button
+                                          key={i}
+                                          type="button"
+                                          onClick={() => setReplies((prev) => ({ ...prev, [request.id]: suggestion }))}
+                                          className="block w-full rounded-lg border border-[#e5dede] bg-white px-3 py-2.5 text-left text-sm text-slate-700 transition hover:border-[#9E1B34]/30 hover:bg-[#fff7f7]"
+                                        >
+                                          <span className="mr-2 inline-block rounded bg-[#9E1B34]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#9E1B34]">
+                                            {i + 1}
+                                          </span>
+                                          {suggestion}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              )}
+
                               <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
                                 Reply to user
                               </label>
                               <textarea
                                 value={replies[request.id] ?? ""}
                                 onChange={(event) => handleReplyChange(request.id, event.target.value)}
+                                onFocus={() => {
+                                  const y = window.scrollY
+                                  requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "instant" }))
+                                }}
                                 rows={3}
-                                placeholder="Type your reply..."
+                                placeholder="Type your reply or click a suggestion above…"
                                 className="w-full resize-none rounded-lg border border-[#dccfd0] bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#BA0C2F]/50 focus:ring-2 focus:ring-[#BA0C2F]/10"
                               />
                               <div className="mt-3 flex flex-wrap justify-end gap-2">
