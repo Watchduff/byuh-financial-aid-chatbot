@@ -48,6 +48,7 @@ type ChatHistoryEntry = {
 
 type Filter = "pending" | "answered" | "all" | "trash" | "history" | "analytics"
 type ConfidenceFilter = "all" | "high" | "low"
+type TypeFilter = "all" | "bot-only" | "escalated"
 type HistoryGroupBy = "day" | "month"
 
 const STATUS_STYLES: Record<string, string> = {
@@ -198,6 +199,8 @@ export default function AdminConsolePage() {
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all")
   const [historyGroupBy, setHistoryGroupBy] = useState<HistoryGroupBy>("day")
   const [historySearch, setHistorySearch] = useState("")
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
+  const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false)
   const [selectedHistoryConversationId, setSelectedHistoryConversationId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [requests, setRequests] = useState<SupportRequest[]>([])
@@ -431,14 +434,37 @@ export default function AdminConsolePage() {
       .sort((a, b) => new Date(b.latestAt).getTime() - new Date(a.latestAt).getTime())
   }, [visibleChatHistory, historyAgentReplies])
 
+  const filteredHistoryConversations = useMemo(() => {
+    if (typeFilter === "escalated") return historyConversations.filter((c) => c.hasLiveSupport)
+    if (typeFilter === "bot-only") return historyConversations.filter((c) => !c.hasLiveSupport)
+    return historyConversations
+  }, [historyConversations, typeFilter])
+
+  const historyTypeCounts = useMemo(() => {
+    const escalated = historyConversations.filter((conversation) => conversation.hasLiveSupport).length
+    return {
+      all: historyConversations.length,
+      botOnly: historyConversations.length - escalated,
+      escalated,
+    }
+  }, [historyConversations])
+
+  const activeHistoryFilterCount = useMemo(() => {
+    return [
+      confidenceFilter !== "all",
+      typeFilter !== "all",
+      historyGroupBy !== "day",
+    ].filter(Boolean).length
+  }, [confidenceFilter, typeFilter, historyGroupBy])
+
   const selectedHistoryConversation = useMemo(() => {
-    return historyConversations.find((conversation) => conversation.conversationId === selectedHistoryConversationId)
-      ?? historyConversations[0]
+    return filteredHistoryConversations.find((conversation) => conversation.conversationId === selectedHistoryConversationId)
+      ?? filteredHistoryConversations[0]
       ?? null
-  }, [historyConversations, selectedHistoryConversationId])
+  }, [filteredHistoryConversations, selectedHistoryConversationId])
 
   const groupedHistoryConversations = useMemo(() => {
-    return historyConversations.reduce<Array<{ label: string; conversations: typeof historyConversations }>>((groups, conversation) => {
+    return filteredHistoryConversations.reduce<Array<{ label: string; conversations: typeof filteredHistoryConversations }>>((groups, conversation) => {
       const label = historyGroupBy === "month"
         ? formatMonthLabel(conversation.latestAt)
         : formatDayLabel(conversation.latestAt)
@@ -450,7 +476,7 @@ export default function AdminConsolePage() {
       }
       return groups
     }, [])
-  }, [historyConversations, historyGroupBy])
+  }, [filteredHistoryConversations, historyGroupBy])
 
   const visibleRequests = useMemo(() => {
     if (filter === "trash") return requests.filter((request) => request.status === "deleted")
@@ -855,236 +881,137 @@ export default function AdminConsolePage() {
 
       <div className="flex min-h-screen">
         <aside
-          className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-[#7d1428] bg-[#9E1B34] text-white shadow-xl transition-transform md:sticky md:top-0 md:translate-x-0 ${
+          className={`fixed inset-y-0 left-0 z-40 flex w-18 flex-col items-center border-r border-[#7d1428] bg-[#9E1B34] py-4 text-white shadow-xl transition-transform md:sticky md:top-0 md:translate-x-0 ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
           }`}
         >
-          <div className="border-b border-white/10 px-5 py-5">
-            <div className="mb-5 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-full bg-white leading-none shadow-sm">
-                  <span className="text-[10px] font-extrabold text-[#9E1B34]">BYU</span>
-                  <span className="text-[5.5px] font-bold uppercase tracking-wide text-[#9E1B34]">
-                    HAWAII
-                  </span>
-                </div>
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-white/55">
-                    Financial Aid
-                  </p>
-                  <h1 className="text-sm font-bold leading-tight">Officials Console</h1>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(false)}
-                aria-label="Close sidebar"
-                className="rounded-lg p-1.5 text-white/60 transition hover:bg-white/10 hover:text-white md:hidden"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
-                  <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-                </svg>
-              </button>
-            </div>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close sidebar"
+            className="mb-4 rounded-lg p-2 text-white/65 transition hover:bg-white/10 hover:text-white md:hidden"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+              <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+            </svg>
+          </button>
 
-            <button
-              type="button"
-              onClick={fetchRequests}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
-                <path fillRule="evenodd" d="M3.25 4.75A.75.75 0 0 1 4 4h4.25a.75.75 0 0 1 0 1.5H5.81l1.72 1.72a.75.75 0 0 1-1.06 1.06L4.75 6.56V9a.75.75 0 0 1-1.5 0V4.75Zm13.5 10.5A.75.75 0 0 1 16 16h-4.25a.75.75 0 0 1 0-1.5h2.44l-1.72-1.72a.75.75 0 1 1 1.06-1.06l1.72 1.72V11a.75.75 0 0 1 1.5 0v4.25Z" clipRule="evenodd" />
-              </svg>
-              Refresh requests
-            </button>
-
-            <label className="mt-3 block">
-              <span className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.18em] text-white/45">
-                Name shown to user
-              </span>
-              <input
-                value={adminName}
-                onChange={(event) => setAdminName(event.target.value)}
-                className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 focus:border-white/45 focus:bg-white/15"
-                placeholder="Financial Aid Advisor"
-              />
-            </label>
+          <div className="mb-7 flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-full bg-white leading-none shadow-sm">
+            <span className="text-[10px] font-extrabold text-[#9E1B34]">BYU</span>
+            <span className="text-[5.5px] font-bold uppercase tracking-wide text-[#9E1B34]">HAWAII</span>
           </div>
 
-          <nav className="flex-1 overflow-y-auto px-3 py-4">
-            <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">
-              Queue
-            </p>
-            <div className="space-y-1">
-              {FILTER_OPTIONS.map((option) => {
-                const active = filter === option.id
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    onClick={() => {
-                      setFilter(option.id)
-                      setSidebarOpen(false)
-                    }}
-                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${
-                      active
-                        ? "bg-white text-[#9E1B34] shadow-sm"
-                        : "text-white/72 hover:bg-white/10 hover:text-white"
-                    }`}
-                  >
-                    <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
-                        active ? "bg-[#9E1B34]/10" : "bg-white/10"
-                      }`}
-                    >
-                      {counts[option.id]}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold">{option.label}</span>
-                      <span className={`block truncate text-[11px] ${active ? "text-[#9E1B34]/65" : "text-white/45"}`}>
-                        {option.description}
-                      </span>
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-
-            <div className="mt-6 border-t border-white/10 pt-4">
-              <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">
-                Insights
-              </p>
-              <div className="space-y-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFilter("history")
-                    setSidebarOpen(false)
-                  }}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${
-                    isHistoryView
-                      ? "bg-white text-[#9E1B34] shadow-sm"
-                      : "text-white/72 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <span
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
-                      isHistoryView ? "bg-[#9E1B34]/10" : "bg-white/10"
-                    }`}
-                  >
-                    {historyCounts.conversations}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold">{HISTORY_FILTER.label}</span>
-                    <span className={`block truncate text-[11px] ${isHistoryView ? "text-[#9E1B34]/65" : "text-white/45"}`}>
-                      {HISTORY_FILTER.description}
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFilter("analytics")
-                    setSidebarOpen(false)
-                  }}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${
-                    isAnalyticsView
-                      ? "bg-white text-[#9E1B34] shadow-sm"
-                      : "text-white/72 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <span
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
-                      isAnalyticsView ? "bg-[#9E1B34]/10" : "bg-white/10"
-                    }`}
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
-                      <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM9.5 6A1.5 1.5 0 0 0 8 7.5v9a1.5 1.5 0 0 0 3 0v-9A1.5 1.5 0 0 0 9.5 6ZM3.5 10A1.5 1.5 0 0 0 2 11.5v5a1.5 1.5 0 0 0 3 0v-5A1.5 1.5 0 0 0 3.5 10Z" />
-                    </svg>
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-semibold">{ANALYTICS_FILTER.label}</span>
-                    <span className={`block truncate text-[11px] ${isAnalyticsView ? "text-[#9E1B34]/65" : "text-white/45"}`}>
-                      {ANALYTICS_FILTER.description}
-                    </span>
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-6 border-t border-white/10 pt-4">
-              <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">
-                Deleted
-              </p>
+          <nav className="flex flex-1 flex-col items-center gap-3">
+            {[
+              {
+                label: "Pending",
+                count: counts.pending,
+                active: filter === "pending",
+                onClick: () => setFilter("pending" as Filter),
+                icon: (
+                  <path fillRule="evenodd" d="M2 5.75A2.75 2.75 0 0 1 4.75 3h10.5A2.75 2.75 0 0 1 18 5.75v8.5A2.75 2.75 0 0 1 15.25 17H4.75A2.75 2.75 0 0 1 2 14.25v-8.5Zm2.75-1.25c-.69 0-1.25.56-1.25 1.25v1h13v-1c0-.69-.56-1.25-1.25-1.25H4.75Zm11.75 3.75h-13v6c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6Z" clipRule="evenodd" />
+                ),
+              },
+              {
+                label: "Answered",
+                count: counts.answered,
+                active: filter === "answered",
+                onClick: () => setFilter("answered" as Filter),
+                icon: (
+                  <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" />
+                ),
+              },
+              {
+                label: "All Requests",
+                count: counts.all,
+                active: filter === "all",
+                onClick: () => setFilter("all" as Filter),
+                icon: (
+                  <path fillRule="evenodd" d="M4.25 3A2.25 2.25 0 0 0 2 5.25v9.5A2.25 2.25 0 0 0 4.25 17h11.5A2.25 2.25 0 0 0 18 14.75v-9.5A2.25 2.25 0 0 0 15.75 3H4.25ZM3.5 7.5h13v7.25c0 .414-.336.75-.75.75H4.25a.75.75 0 0 1-.75-.75V7.5Z" clipRule="evenodd" />
+                ),
+              },
+              {
+                label: "Chat History",
+                count: historyCounts.conversations,
+                active: isHistoryView,
+                onClick: () => setFilter("history" as Filter),
+                icon: (
+                  <path fillRule="evenodd" d="M10 3c-4.418 0-8 2.91-8 6.5 0 1.508.635 2.89 1.697 3.993-.102.838-.367 1.522-.667 2.04a.75.75 0 0 0 .889 1.09 8.66 8.66 0 0 0 2.826-1.563A9.43 9.43 0 0 0 10 16c4.418 0 8-2.91 8-6.5S14.418 3 10 3ZM6.75 9.5a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H6.75Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H10Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5h-.008Z" clipRule="evenodd" />
+                ),
+              },
+              {
+                label: "Analytics",
+                count: analyticsData?.totals.questions ?? 0,
+                active: isAnalyticsView,
+                onClick: () => setFilter("analytics" as Filter),
+                icon: (
+                  <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM9.5 6A1.5 1.5 0 0 0 8 7.5v9a1.5 1.5 0 0 0 3 0v-9A1.5 1.5 0 0 0 9.5 6ZM3.5 10A1.5 1.5 0 0 0 2 11.5v5a1.5 1.5 0 0 0 3 0v-5A1.5 1.5 0 0 0 3.5 10Z" />
+                ),
+              },
+              {
+                label: "Trash Bin",
+                count: trashCounts.all,
+                active: isTrashView,
+                onClick: () => setFilter("trash" as Filter),
+                icon: (
+                  <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4Z" clipRule="evenodd" />
+                ),
+              },
+            ].map((item) => (
               <button
+                key={item.label}
                 type="button"
                 onClick={() => {
-                  setFilter("trash")
+                  item.onClick()
                   setSidebarOpen(false)
                 }}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition ${
-                  isTrashView
+                title={item.label}
+                aria-label={item.label}
+                className={`group relative flex h-11 w-11 items-center justify-center rounded-lg transition ${
+                  item.active
                     ? "bg-white text-[#9E1B34] shadow-sm"
-                    : "text-white/72 hover:bg-white/10 hover:text-white"
+                    : "text-white/70 hover:bg-white/12 hover:text-white"
                 }`}
               >
-                <span
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
-                    isTrashView ? "bg-[#9E1B34]/10" : "bg-white/10"
-                  }`}
-                >
-                  {trashCounts.all}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">{TRASH_FILTER.label}</span>
-                  <span className={`block truncate text-[11px] ${isTrashView ? "text-[#9E1B34]/65" : "text-white/45"}`}>
-                    {TRASH_FILTER.description}
+                {item.active && <span className="absolute -left-3 h-7 w-1 rounded-r-full bg-white" />}
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                  {item.icon}
+                </svg>
+                {item.count > 0 && (
+                  <span className={`absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+                    item.active ? "bg-[#9E1B34] text-white" : "bg-white text-[#9E1B34]"
+                  }`}>
+                    {item.count > 99 ? "99+" : item.count}
                   </span>
+                )}
+                <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:translate-x-1 group-hover:opacity-100">
+                  {item.label}
                 </span>
               </button>
-            </div>
-
-            <div className="mt-6 border-t border-white/10 pt-4">
-              <p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">
-                Recent
-              </p>
-              {recentRequests.length === 0 ? (
-                <p className="px-2 py-2 text-xs leading-5 text-white/45">No live support activity yet.</p>
-              ) : (
-                <div className="space-y-1">
-                  {recentRequests.map((request) => (
-                    <button
-                      key={request.id}
-                      type="button"
-                      onClick={() => openRecentRequest(request)}
-                      className="w-full rounded-lg px-3 py-2 text-left transition hover:bg-white/10"
-                    >
-                      <span className="block truncate text-xs font-semibold text-white/85">
-                        {request.latestQuestion}
-                      </span>
-                      <span className="mt-0.5 block text-[11px] text-white/45">
-                        {statusLabel(request.status)} - {formatDate(request.createdAt)}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            ))}
           </nav>
 
-          <div className="border-t border-white/10 px-4 py-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white">
-                {(adminName || "A").charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-white">{adminName || "Financial Aid Advisor"}</p>
-                <p className="text-[10px] text-white/45">Signed in as advisor</p>
-              </div>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={fetchRequests}
+            title="Refresh requests"
+            aria-label="Refresh requests"
+            className="group relative mb-3 flex h-11 w-11 items-center justify-center rounded-lg text-white/70 transition hover:bg-white/12 hover:text-white"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+              <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
+            </svg>
+            <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:translate-x-1 group-hover:opacity-100">
+              Refresh requests
+            </span>
+          </button>
 
+          <div className="group relative flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white" title={adminName || "Financial Aid Advisor"}>
+            {(adminName || "A").charAt(0).toUpperCase()}
+            <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:translate-x-1 group-hover:opacity-100">
+              {adminName || "Financial Aid Advisor"}
+            </span>
+          </div>
         </aside>
 
         <section className="min-w-0 flex-1">
@@ -1114,19 +1041,19 @@ export default function AdminConsolePage() {
                   {isHistoryView ? "Chats" : isAnalyticsView ? "Questions" : "Visible"}
                 </p>
                 <p className="text-lg font-bold text-[#9E1B34]">
-                  {isHistoryView ? historyConversations.length : isAnalyticsView ? (analyticsData?.totals.questions ?? "—") : visibleRequests.length}
+                  {isHistoryView ? filteredHistoryConversations.length : isAnalyticsView ? (analyticsData?.totals.questions ?? "—") : visibleRequests.length}
                 </p>
               </div>
             </div>
           </header>
 
-          <div className={`mx-auto px-4 py-5 md:px-6 ${isHistoryView ? "max-w-none" : "max-w-6xl"}`}>
+          <div className={`mx-auto px-4 py-6 md:px-6 ${isHistoryView ? "max-w-none" : "max-w-6xl"}`}>
             {!isHistoryView && !isAnalyticsView && (
-              <div className="mb-5 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="mb-6 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-6 py-5">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0 text-slate-400">
                   <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.253a.25.25 0 0 1 .244.304l-.459 2.066A1.75 1.75 0 0 0 10.747 15H11a.75.75 0 0 0 0-1.5h-.253a.25.25 0 0 1-.244-.304l.459-2.066A1.75 1.75 0 0 0 9.253 9H9Z" clipRule="evenodd" />
                 </svg>
-                <p className="text-xs leading-5 text-slate-500">
+                <p className="text-xs leading-6 text-slate-500">
                   <span className="font-semibold text-slate-600">Hours:</span> Mon–Fri, 8 AM–5 PM HST. Closed during devotional (Tue 11 AM–12 PM) and holidays.
                   <span className="mx-2 text-slate-300">·</span>
                   <span className="font-semibold text-amber-700">Privacy:</span> Do not collect or store sensitive personal information in live chat — direct account-specific records to official Financial Aid channels.
@@ -1135,13 +1062,13 @@ export default function AdminConsolePage() {
             )}
 
             {isTrashView && (
-              <div className="mb-5 grid gap-3 sm:grid-cols-3">
+              <div className="mb-6 grid gap-4 sm:grid-cols-3">
                 {[
                   { label: "Deleted Pending", count: trashCounts.pending },
                   { label: "Deleted Answered", count: trashCounts.answered },
                   { label: "All Deleted Requests", count: trashCounts.all },
                 ].map((item) => (
-                  <div key={item.label} className="rounded-lg border border-[#e5dede] bg-white px-4 py-4 shadow-sm">
+                  <div key={item.label} className="rounded-lg border border-[#e5dede] bg-white px-6 py-5 shadow-sm">
                     <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
                       {item.label}
                     </p>
@@ -1152,7 +1079,7 @@ export default function AdminConsolePage() {
             )}
 
             {error && (
-              <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-6 py-5 text-sm text-red-700">
                 {error}
               </div>
             )}
@@ -1256,10 +1183,10 @@ export default function AdminConsolePage() {
                     analyticsView === "yearly" ? (
                       <>
                         {/* Yearly totals */}
-                        <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                        <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
                           Yearly Summary — {analyticsData.year}
                         </p>
-                        <div className="mb-8 grid gap-3 sm:grid-cols-5">
+                        <div className="mb-8 grid gap-4 sm:grid-cols-5">
                           {[
                             { label: "Conversations", value: analyticsData.totals.conversations },
                             { label: "Questions", value: analyticsData.totals.questions },
@@ -1267,7 +1194,7 @@ export default function AdminConsolePage() {
                             { label: "Low Confidence", value: analyticsData.totals.low },
                             { label: "Escalations", value: analyticsData.totals.escalations },
                           ].map((item) => (
-                            <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-4 py-4">
+                            <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-6 py-5">
                               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
                               <p className="mt-1 text-2xl font-bold text-[#9E1B34]">{item.value}</p>
                             </div>
@@ -1275,7 +1202,7 @@ export default function AdminConsolePage() {
                         </div>
 
                         {/* Monthly table — all months visible */}
-                        <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                        <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
                           Monthly Breakdown — {analyticsData.year}
                         </p>
                         <div className="overflow-hidden rounded-lg border border-[#e5dede]">
@@ -1341,10 +1268,10 @@ export default function AdminConsolePage() {
                           <p className="py-10 text-center text-sm text-slate-400">Loading monthly data...</p>
                         ) : monthlyDetail ? (
                           <>
-                            <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                            <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
                               Monthly Summary — {monthlyDetail.label}
                             </p>
-                            <div className="mb-8 grid gap-3 sm:grid-cols-5">
+                            <div className="mb-8 grid gap-4 sm:grid-cols-5">
                               {[
                                 { label: "Conversations", value: monthlyDetail.totals.conversations },
                                 { label: "Questions", value: monthlyDetail.totals.questions },
@@ -1352,14 +1279,14 @@ export default function AdminConsolePage() {
                                 { label: "Low Confidence", value: monthlyDetail.totals.low },
                                 { label: "Escalations", value: monthlyDetail.totals.escalations },
                               ].map((item) => (
-                                <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-4 py-4">
+                                <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-6 py-5">
                                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
                                   <p className="mt-1 text-2xl font-bold text-[#9E1B34]">{item.value}</p>
                                 </div>
                               ))}
                             </div>
 
-                            <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                            <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
                               Daily Breakdown — {monthlyDetail.label}
                             </p>
                             <div className="overflow-hidden rounded-lg border border-[#e5dede]">
@@ -1427,13 +1354,13 @@ export default function AdminConsolePage() {
 
                   {feedbackStats ? (
                     <>
-                      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+                      <div className="mb-6 grid gap-4 sm:grid-cols-3">
                         {[
                           { label: "Helpful", value: feedbackStats.totals.helpful, color: "text-emerald-700" },
                           { label: "Not Helpful", value: feedbackStats.totals.notHelpful, color: "text-red-600" },
                           { label: "Total Rated", value: feedbackStats.totals.total, color: "text-[#9E1B34]" },
                         ].map((item) => (
-                          <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-4 py-4">
+                          <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-6 py-5">
                             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
                             <p className={`mt-1 text-2xl font-bold ${item.color}`}>{item.value}</p>
                             {feedbackStats.totals.total > 0 && (
@@ -1456,12 +1383,12 @@ export default function AdminConsolePage() {
 
                       {feedbackStats.recent.length > 0 && (
                         <>
-                          <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                          <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
                             Recent Not-Helpful Responses
                           </p>
-                          <div className="space-y-3">
+                          <div className="space-y-4">
                             {feedbackStats.recent.map((item) => (
-                              <div key={item.id} className="rounded-lg border border-red-100 bg-red-50 px-4 py-3">
+                              <div key={item.id} className="rounded-lg border border-red-100 bg-red-50 px-6 py-5">
                                 <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-400">
                                   {new Date(item.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                                 </p>
@@ -1483,76 +1410,12 @@ export default function AdminConsolePage() {
                 </section>
               </div>
             ) : isHistoryView ? (
-              historyConversations.length === 0 ? (
-                <div className="rounded-lg border border-[#e5dede] bg-white py-16 text-center text-sm text-slate-400">
-                  No {confidenceFilter === "all" ? "" : confidenceFilter + " confidence "}chat history yet.
-                </div>
-              ) : (
-                <div className="space-y-5">
-                  <section className="rounded-lg border border-[#d8e0e8] bg-white px-4 py-3 shadow-sm">
-                    <div className="flex flex-wrap items-center gap-3">
-                      {/* Confidence pills */}
-                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Confidence</span>
-                      <div className="flex items-center gap-1.5">
-                        {([
-                          { id: "all", label: "All", count: historyCounts.all },
-                          { id: "high", label: "High", count: historyCounts.high },
-                          { id: "low", label: "Low", count: historyCounts.low },
-                        ] as const).map((option) => (
-                          <button
-                            key={option.id}
-                            type="button"
-                            onClick={() => setConfidenceFilter(option.id)}
-                            className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition ${
-                              confidenceFilter === option.id
-                                ? "border-[#9E1B34] bg-[#9E1B34] text-white"
-                                : "border-[#e5dede] bg-white text-slate-600 hover:bg-slate-50"
-                            }`}
-                          >
-                            {option.label}
-                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${confidenceFilter === option.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
-                              {option.count}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="h-4 w-px bg-slate-200" />
-
-                      {/* Group by toggle */}
-                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Group</span>
-                      <div className="flex items-center gap-1 rounded-lg border border-[#e5dede] bg-slate-50 p-0.5">
-                        {(["day", "month"] as const).map((option) => (
-                          <button
-                            key={option}
-                            type="button"
-                            onClick={() => setHistoryGroupBy(option)}
-                            className={`rounded-md px-3 py-1 text-xs font-semibold capitalize transition ${
-                              historyGroupBy === option
-                                ? "bg-slate-900 text-white shadow-sm"
-                                : "text-slate-500 hover:text-slate-800"
-                            }`}
-                          >
-                            {option}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Reset */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setConfidenceFilter("all")
-                          setHistoryGroupBy("day")
-                          setHistorySearch("")
-                        }}
-                        className="ml-auto rounded-lg border border-[#d8e0e8] bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100"
-                      >
-                        Reset
-                      </button>
+              <div className="space-y-5">
+                  {chatHistory.length === 0 ? (
+                    <div className="rounded-lg border border-[#e5dede] bg-white py-16 text-center text-sm text-slate-400">
+                      No chat history yet.
                     </div>
-                  </section>
-
+                  ) : (
                   <div className="grid min-h-180 overflow-hidden rounded-lg border border-[#d8e0e8] bg-white shadow-sm lg:grid-cols-[420px_minmax(0,1fr)] 2xl:grid-cols-[480px_minmax(0,1fr)]">
                   <aside className="border-b border-[#d8e0e8] bg-slate-50 lg:border-b-0 lg:border-r">
                     <div className="border-b border-[#d8e0e8] px-6 py-5">
@@ -1561,37 +1424,162 @@ export default function AdminConsolePage() {
                           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
                             Inbox Chats
                           </p>
-                          <h3 className="mt-1 text-lg font-bold text-slate-950">{historyConversations.length} conversations</h3>
+                          <h3 className="mt-1 text-lg font-bold text-slate-950">{filteredHistoryConversations.length} conversations</h3>
                         </div>
                         <span className="rounded-lg border border-[#dccfd0] bg-white px-2.5 py-1 text-xs font-bold text-slate-500">
                           {visibleChatHistory.length} questions
                         </span>
                       </div>
-                      <label className="mt-4 block">
-                        <span className="sr-only">Search conversations</span>
-                        <div className="flex items-center gap-3 rounded-lg border border-[#cbd5e1] bg-white px-3 py-3 shadow-sm">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5 text-slate-400">
-                            <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 3.473 9.765l2.631 2.631a.75.75 0 1 0 1.061-1.06l-2.631-2.632A5.5 5.5 0 0 0 9 3.5ZM5 9a4 4 0 1 1 8 0A4 4 0 0 1 5 9Z" clipRule="evenodd" />
-                          </svg>
-                          <input
-                            value={historySearch}
-                            onChange={(event) => setHistorySearch(event.target.value)}
-                            placeholder="Search conversations"
-                            className="min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-                          />
+                      <div className="relative mt-4">
+                        <div className="flex items-center gap-3">
+                          <label className="min-w-0 flex-1">
+                            <span className="sr-only">Search conversations</span>
+                            <div className="flex items-center gap-3 rounded-lg border border-[#cbd5e1] bg-white px-3 py-3 shadow-sm">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5 text-slate-400">
+                                <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 3.473 9.765l2.631 2.631a.75.75 0 1 0 1.061-1.06l-2.631-2.632A5.5 5.5 0 0 0 9 3.5ZM5 9a4 4 0 1 1 8 0A4 4 0 0 1 5 9Z" clipRule="evenodd" />
+                              </svg>
+                              <input
+                                value={historySearch}
+                                onChange={(event) => setHistorySearch(event.target.value)}
+                                placeholder="Search conversations"
+                                className="min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                              />
+                            </div>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setHistoryFiltersOpen((open) => !open)}
+                            aria-expanded={historyFiltersOpen}
+                            className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border text-slate-600 shadow-sm transition ${
+                              historyFiltersOpen
+                                ? "border-[#9E1B34] bg-[#9E1B34] text-white"
+                                : "border-[#cbd5e1] bg-white hover:bg-slate-50"
+                            }`}
+                          >
+                            <span className="sr-only">Open chat history filters</span>
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
+                              <path fillRule="evenodd" d="M2.628 1.601C5.028 1.206 7.49 1 10 1s4.973.206 7.372.601a.75.75 0 0 1 .628.74v2.288a2.25 2.25 0 0 1-.659 1.591l-4.682 4.683a2.25 2.25 0 0 0-.659 1.59v3.037a2.25 2.25 0 0 1-1.244 2.013l-2 1A.75.75 0 0 1 7.5 17.87v-5.378a2.25 2.25 0 0 0-.659-1.591L2.159 6.22A2.25 2.25 0 0 1 1.5 4.629V2.34a.75.75 0 0 1 .628-.74Z" clipRule="evenodd" />
+                            </svg>
+                            {activeHistoryFilterCount > 0 && (
+                              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#BA0C2F] px-1 text-[10px] font-bold text-white">
+                                {activeHistoryFilterCount}
+                              </span>
+                            )}
+                          </button>
                         </div>
-                      </label>
+
+                        {historyFiltersOpen && (
+                          <div className="absolute right-0 top-14 z-20 w-full rounded-lg border border-[#d8e0e8] bg-white p-4 shadow-xl sm:w-90">
+                            <div className="mb-4 flex items-center justify-between gap-3">
+                              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Filters</p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setConfidenceFilter("all")
+                                  setTypeFilter("all")
+                                  setHistoryGroupBy("day")
+                                  setHistorySearch("")
+                                }}
+                                className="rounded-md border border-[#e5dede] bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100"
+                              >
+                                Reset
+                              </button>
+                            </div>
+
+                            <div className="space-y-4">
+                              <div>
+                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Confidence</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {([
+                                    { id: "all", label: "All", count: historyCounts.all },
+                                    { id: "high", label: "High", count: historyCounts.high },
+                                    { id: "low", label: "Low", count: historyCounts.low },
+                                  ] as const).map((option) => (
+                                    <button
+                                      key={option.id}
+                                      type="button"
+                                      onClick={() => setConfidenceFilter(option.id)}
+                                      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                                        confidenceFilter === option.id
+                                          ? "border-[#9E1B34] bg-[#9E1B34] text-white"
+                                          : "border-[#e5dede] bg-white text-slate-600 hover:bg-slate-50"
+                                      }`}
+                                    >
+                                      {option.label}
+                                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${confidenceFilter === option.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+                                        {option.count}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div>
+                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Type</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {([
+                                    { id: "all" as TypeFilter, label: "All", count: historyTypeCounts.all },
+                                    { id: "bot-only" as TypeFilter, label: "Bot Only", count: historyTypeCounts.botOnly },
+                                    { id: "escalated" as TypeFilter, label: "Escalated", count: historyTypeCounts.escalated },
+                                  ]).map((option) => (
+                                    <button
+                                      key={option.id}
+                                      type="button"
+                                      onClick={() => setTypeFilter(option.id)}
+                                      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                                        typeFilter === option.id
+                                          ? "border-[#9E1B34] bg-[#9E1B34] text-white"
+                                          : "border-[#e5dede] bg-white text-slate-600 hover:bg-slate-50"
+                                      }`}
+                                    >
+                                      {option.label}
+                                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${typeFilter === option.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+                                        {option.count}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div>
+                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Group</p>
+                                <div className="inline-flex items-center gap-1 rounded-lg border border-[#e5dede] bg-slate-50 p-0.5">
+                                  {(["day", "month"] as const).map((option) => (
+                                    <button
+                                      key={option}
+                                      type="button"
+                                      onClick={() => setHistoryGroupBy(option)}
+                                      className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                                        historyGroupBy === option
+                                          ? "bg-slate-900 text-white shadow-sm"
+                                          : "text-slate-500 hover:text-slate-800"
+                                      }`}
+                                    >
+                                      {option}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="max-h-140 overflow-y-auto px-5 py-4 lg:max-h-157.5">
+                    <div className="max-h-140 overflow-y-auto px-5 py-5 lg:max-h-157.5">
+                      {filteredHistoryConversations.length === 0 && (
+                        <div className="rounded-lg border border-dashed border-[#d8e0e8] bg-white px-5 py-8 text-center text-sm text-slate-400">
+                          No conversations match these filters.
+                        </div>
+                      )}
                       {groupedHistoryConversations.map((group) => (
                         <div key={group.label} className="mb-5">
-                          <div className="mb-2 inline-flex items-center gap-2 rounded-lg bg-slate-200 px-3 py-2 text-xs font-bold text-slate-700">
+                          <div className="mb-3 inline-flex items-center gap-2 rounded-lg bg-slate-200 px-3 py-2 text-xs font-bold text-slate-700">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                               <path fillRule="evenodd" d="M5.75 2a.75.75 0 0 1 .75.75V4h7V2.75a.75.75 0 0 1 1.5 0V4h.25A2.75 2.75 0 0 1 18 6.75v8.5A2.75 2.75 0 0 1 15.25 18H4.75A2.75 2.75 0 0 1 2 15.25v-8.5A2.75 2.75 0 0 1 4.75 4H5V2.75A.75.75 0 0 1 5.75 2Zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75Z" clipRule="evenodd" />
                             </svg>
                             {group.label}
                           </div>
-                          <div className="space-y-2">
+                          <div className="space-y-3">
                             {group.conversations.map((conversation) => {
                               const selected = selectedHistoryConversation?.conversationId === conversation.conversationId
                               return (
@@ -1599,21 +1587,28 @@ export default function AdminConsolePage() {
                                   key={conversation.conversationId}
                                   type="button"
                                   onClick={() => setSelectedHistoryConversationId(conversation.conversationId)}
-                                  className={`block w-full rounded-lg px-4 py-4 text-left transition ${
+                                  className={`block w-full rounded-lg px-5 py-5 text-left transition ${
                                     selected ? "bg-white shadow-sm ring-2 ring-[#9E1B34]/30" : "hover:bg-white"
-                                  }`}
+                                  } ${conversation.hasLiveSupport ? "border-l-[3px] border-l-blue-600 pl-4" : ""}`}
                                 >
                                   <div className="flex items-start justify-between gap-4">
                                     <div className="min-w-0 flex-1">
                                       <p className="text-[11px] font-bold text-slate-500">{formatListTimestamp(conversation.latestAt)}</p>
-                                      <p className="mt-1 line-clamp-1 text-sm font-semibold text-slate-800">
-                                        {conversation.title}
-                                      </p>
-                                      <p className="mt-1 line-clamp-1 text-xs leading-5 text-slate-500">
+                                      <div className="mt-1 flex items-center gap-2">
+                                        <p className="line-clamp-1 text-sm font-semibold text-slate-800">
+                                          {conversation.title}
+                                        </p>
+                                        {conversation.hasLiveSupport && (
+                                          <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-700">
+                                            ESCALATED
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="mt-1 line-clamp-1 text-xs leading-6 text-slate-500">
                                         {conversation.preview}
                                       </p>
                                       {conversation.hasLiveSupport && (
-                                        <div className="mt-2 flex items-center gap-1.5">
+                                        <div className="mt-2 flex items-center gap-2">
                                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-blue-500">
                                             <path fillRule="evenodd" d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0Zm-6-3.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM7.25 6.5a.75.75 0 0 0 0 1.5h.25V10a.75.75 0 0 0 1.5 0V7.25A.75.75 0 0 0 8.25 6.5h-1Z" clipRule="evenodd" />
                                           </svg>
@@ -1623,7 +1618,7 @@ export default function AdminConsolePage() {
                                         </div>
                                       )}
                                     </div>
-                                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                                    <div className="flex shrink-0 flex-col items-end gap-2">
                                       <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600">
                                         {conversation.total} Q
                                       </span>
@@ -1652,7 +1647,7 @@ export default function AdminConsolePage() {
                   <section className="min-h-180 bg-white">
                     {selectedHistoryConversation ? (
                       <div className="flex h-full flex-col">
-                        <div className="border-b border-[#d8e0e8] px-8 py-6">
+                        <div className="border-b border-[#d8e0e8] px-6 py-6 md:px-10 md:py-8">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#BA0C2F]/70">
@@ -1684,20 +1679,20 @@ export default function AdminConsolePage() {
                           </div>
                         </div>
 
-                        <div className="flex-1 space-y-6 overflow-y-auto px-8 py-7">
+                        <div className="flex-1 space-y-6 overflow-y-auto px-5 py-6 md:px-10 md:py-8">
                           {selectedHistoryConversation.entries.map((entry) => (
-                            <div key={entry.id} className="space-y-3">
+                            <div key={entry.id} className="space-y-4">
                               <div className="flex justify-end">
-                                <div className="max-w-[76%] rounded-lg bg-[#9E1B34] px-5 py-4 text-white shadow-sm">
+                                <div className="max-w-[86%] rounded-lg bg-[#9E1B34] px-6 py-5 text-white shadow-sm md:max-w-[76%]">
                                   <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-white/60">
                                     User - {formatDate(entry.questionAt)}
                                   </div>
-                                  <p className="whitespace-pre-wrap text-sm leading-6">{entry.question}</p>
+                                  <p className="whitespace-pre-wrap text-sm leading-7">{entry.question}</p>
                                 </div>
                               </div>
 
                               <div className="flex justify-start">
-                                <div className="max-w-[76%] rounded-lg border border-[#e5dede] bg-slate-50 px-5 py-4 shadow-sm">
+                                <div className="max-w-[86%] rounded-lg border border-[#e5dede] bg-slate-50 px-6 py-5 shadow-sm md:max-w-[76%]">
                                   <div className="mb-2 flex flex-wrap items-center gap-2">
                                     <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
                                       Chatbot - {entry.answerAt ? formatDate(entry.answerAt) : "No response saved"}
@@ -1723,7 +1718,7 @@ export default function AdminConsolePage() {
                                       </span>
                                     )}
                                   </div>
-                                  <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">
+                                  <p className="whitespace-pre-wrap text-sm leading-7 text-slate-800">
                                     {entry.answer || "No chatbot response was saved for this question."}
                                   </p>
                                   {entry.sources.length > 0 && (
@@ -1741,7 +1736,7 @@ export default function AdminConsolePage() {
                           ))}
 
                           {(historyAgentReplies[selectedHistoryConversation.conversationId] ?? []).length > 0 && (
-                            <div className="mt-2 space-y-3">
+                            <div className="mt-2 space-y-4">
                               <div className="flex items-center gap-3">
                                 <div className="h-px flex-1 bg-slate-200" />
                                 <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-600">
@@ -1751,11 +1746,11 @@ export default function AdminConsolePage() {
                               </div>
                               {historyAgentReplies[selectedHistoryConversation.conversationId].map((reply) => (
                                 <div key={reply.id} className="flex justify-start">
-                                  <div className="max-w-[76%] rounded-lg border border-blue-200 bg-blue-50 px-5 py-4 shadow-sm">
+                                  <div className="max-w-[86%] rounded-lg border border-blue-200 bg-blue-50 px-6 py-5 shadow-sm md:max-w-[76%]">
                                     <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-500">
                                       {reply.agentName} &mdash; {formatDate(reply.createdAt)}
                                     </div>
-                                    <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">{reply.content}</p>
+                                    <p className="whitespace-pre-wrap text-sm leading-7 text-slate-800">{reply.content}</p>
                                   </div>
                                 </div>
                               ))}
@@ -1777,8 +1772,8 @@ export default function AdminConsolePage() {
                     )}
                   </section>
                 </div>
-                </div>
-              )
+                  )}
+              </div>
             ) : visibleRequests.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-lg border border-[#e5dede] bg-white py-20 text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
@@ -1804,7 +1799,7 @@ export default function AdminConsolePage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 {visibleRequests.map((request) => {
                   const expanded = expandedIds.has(request.id)
                   const label = isTrashView
@@ -1835,18 +1830,18 @@ export default function AdminConsolePage() {
                   return (
                     <article
                       key={request.id}
-                      className={`rounded-lg border bg-white p-5 shadow-sm transition-all ${
+                      className={`rounded-lg border bg-white p-6 shadow-sm transition-all ${
                         isLive && expanded ? "border-[#9E1B34]/30 ring-1 ring-[#9E1B34]/15" : "border-[#e5dede]"
                       }`}
                     >
                       <div className="flex flex-wrap items-start gap-3">
                         <span
-                          className={`rounded-full border px-2.5 py-1 text-xs font-bold ${STATUS_STYLES[request.status]}`}
+                          className={`rounded-full border px-3 py-1.5 text-xs font-bold ${STATUS_STYLES[request.status]}`}
                         >
                           {isTrashView ? `Deleted ${label}` : label}
                         </span>
                         {isLive && (
-                          <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                          <span className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
                             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
                             LIVE
                           </span>
@@ -1871,14 +1866,14 @@ export default function AdminConsolePage() {
                           <h2 className="mt-1 line-clamp-2 text-base font-semibold text-slate-900">
                             {request.latestQuestion}
                           </h2>
-                          <p className="mt-2 rounded-lg border border-[#eadfe0] bg-[#fdf8f8] px-3 py-2 text-sm text-slate-600">
+                          <p className="mt-3 rounded-lg border border-[#eadfe0] bg-[#fdf8f8] px-4 py-3 text-sm leading-6 text-slate-600">
                             <span className="font-semibold text-slate-800">Escalation reason:</span>{" "}
                             {request.chatbotNote}
                           </p>
 
                           {/* Live draft preview on collapsed card */}
                           {isLive && !expanded && typingStatuses[request.id] && (
-                            <div className="mt-2 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                            <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
                               <span className="flex shrink-0 items-center gap-1 pt-0.5">
                                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.3s]" />
                                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.15s]" />
@@ -1904,8 +1899,8 @@ export default function AdminConsolePage() {
                       </div>
 
                       {expanded && (
-                        <div className="mt-5 border-t border-[#f0e8e8] pt-5">
-                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div className="mt-6 border-t border-[#f0e8e8] pt-6">
+                          <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
                             <div>
                               <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
                                 Live Chat
@@ -1915,27 +1910,27 @@ export default function AdminConsolePage() {
                                 {liveMessages.length} live message{liveMessages.length !== 1 ? "s" : ""}
                               </p>
                             </div>
-                            <span className="rounded-full border border-[#e5dede] bg-white px-3 py-1 text-xs font-semibold text-slate-500">
+                            <span className="rounded-full border border-[#e5dede] bg-white px-4 py-2 text-xs font-semibold text-slate-500">
                               {timeline.length} total
                             </span>
                           </div>
 
                           <div
                             ref={(el) => { transcriptContainerRefs.current[request.id] = el }}
-                            className="max-h-96 overflow-y-auto rounded-lg border border-[#e5dede] bg-slate-50 p-3"
+                            className="max-h-96 overflow-y-auto rounded-lg border border-[#e5dede] bg-slate-50 p-4"
                           >
                             {timeline.length === 0 ? (
                               <p className="px-3 py-6 text-center text-sm text-slate-400">
                                 No conversation history was saved for this request.
                               </p>
                             ) : (
-                              <div className="space-y-2">
+                              <div className="space-y-3">
                                 {preHistory.length > 0 && (
                                   <>
                                     {preHistory.map((message) => (
                                       <div
                                         key={message.id}
-                                        className={`rounded-lg border px-3 py-2.5 opacity-70 ${
+                                        className={`rounded-lg border px-4 py-3 opacity-70 ${
                                           message.role === "USER"
                                             ? "border-[#f3ccd4] bg-[#fff7f7]"
                                             : "border-slate-200 bg-white"
@@ -1947,7 +1942,7 @@ export default function AdminConsolePage() {
                                           </span>
                                           <span className="text-[10px] text-slate-400">{formatDate(message.createdAt)}</span>
                                         </div>
-                                        <p className="whitespace-pre-wrap text-sm leading-5 text-slate-600">{message.content}</p>
+                                        <p className="whitespace-pre-wrap text-sm leading-6 text-slate-600">{message.content}</p>
                                       </div>
                                     ))}
                                     <div className="flex items-center gap-2 py-2">
@@ -1968,7 +1963,7 @@ export default function AdminConsolePage() {
                                   liveMessages.map((message) => (
                                     <div
                                       key={message.id}
-                                      className={`rounded-lg border px-3 py-2.5 ${
+                                      className={`rounded-lg border px-4 py-3 ${
                                         message.role === "USER"
                                           ? "border-[#f3ccd4] bg-[#fff7f7]"
                                           : message.role === "ADMIN"
@@ -1982,14 +1977,14 @@ export default function AdminConsolePage() {
                                         </span>
                                         <span className="text-[10px] text-slate-400">{formatDate(message.createdAt)}</span>
                                       </div>
-                                      <p className="whitespace-pre-wrap text-sm leading-5 text-slate-800">{message.content}</p>
+                                      <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">{message.content}</p>
                                     </div>
                                   ))
                                 )}
 
                                 {/* Typing indicator — inline at the bottom of the thread */}
                                 {label === "Pending" && typingStatuses[request.id] && (
-                                  <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+                                  <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
                                     <span className="flex shrink-0 items-center gap-1 pt-1">
                                       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.3s]" />
                                       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.15s]" />
@@ -2011,12 +2006,12 @@ export default function AdminConsolePage() {
                           </div>
 
                           {!isTrashView && (
-                            <div className="mt-5 rounded-lg border border-[#e5dede] bg-[#fdf8f8] p-4">
+                            <div className="mt-6 rounded-lg border border-[#e5dede] bg-[#fdf8f8] p-6">
                               {/* Suggested replies */}
                               {/* Suggested replies */}
                               {label === "Pending" && (
-                                <div className="mb-3">
-                                  <div className="mb-2 flex items-center justify-between gap-2">
+                                <div className="mb-5">
+                                  <div className="mb-3 flex items-center justify-between gap-2">
                                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                                       Suggested Replies
                                     </span>
@@ -2034,20 +2029,20 @@ export default function AdminConsolePage() {
                                   </div>
 
                                   {suggestingId === request.id && !suggestedReplies[request.id] ? (
-                                    <div className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-slate-50 px-3 py-3 text-xs text-slate-400">
+                                    <div className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-slate-50 px-4 py-4 text-xs text-slate-400">
                                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 animate-spin">
                                         <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
                                       </svg>
                                       Generating suggestions…
                                     </div>
                                   ) : suggestedReplies[request.id]?.length > 0 ? (
-                                    <div className="space-y-2">
+                                    <div className="space-y-3">
                                       {suggestedReplies[request.id].map((suggestion, i) => (
                                         <button
                                           key={i}
                                           type="button"
                                           onClick={() => handleReplyChange(request.id, suggestion)}
-                                          className="block w-full rounded-lg border border-[#e5dede] bg-white px-3 py-2.5 text-left text-sm text-slate-700 transition hover:border-[#9E1B34]/30 hover:bg-[#fff7f7]"
+                                          className="block w-full rounded-lg border border-[#e5dede] bg-white px-4 py-3 text-left text-sm leading-6 text-slate-700 transition hover:border-[#9E1B34]/30 hover:bg-[#fff7f7]"
                                         >
                                           <span className="mr-2 inline-block rounded bg-[#9E1B34]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#9E1B34]">
                                             {i + 1}
@@ -2060,7 +2055,7 @@ export default function AdminConsolePage() {
                                 </div>
                               )}
 
-                              <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                              <label className="mb-3 block text-xs font-bold uppercase tracking-wider text-slate-500">
                                 Reply to user
                               </label>
                               <textarea

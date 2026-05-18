@@ -386,7 +386,7 @@ export default function Page() {
     setViewMode("chat")
 
     await ensureServerConversation(id, title)
-    const result = await sendMessage({ text: question, conversationId: id, conversationTitle: title })
+    const result = await sendMessage({ text: question, conversationId: id, conversationTitle: title, history: [] })
     if (result) {
       const savedMessages = [
         result.userMessage,
@@ -466,6 +466,10 @@ export default function Page() {
       text: trimmed,
       conversationId,
       conversationTitle,
+      history: messagesRef.current
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .slice(-6)
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     })
 
     if (result) {

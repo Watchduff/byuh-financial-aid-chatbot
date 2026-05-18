@@ -1,4 +1,6 @@
-import { useState, useCallback } from "react"
+"use client"
+
+import { useState, useCallback, useRef } from "react"
 import { generateId } from "@/lib/utils"
 
 export type UIMessage = {
@@ -31,12 +33,15 @@ type SendMessageInput = {
   text: string
   conversationId?: string
   conversationTitle?: string
+  history?: Array<{ role: "user" | "assistant"; content: string }>
 }
 
 export function useChat(options?: UseChatOptions) {
   const [messages, setMessages] = useState<UIMessage[]>([])
   const [status, setStatus] = useState<"idle" | "streaming" | "submitted">("idle")
   const [error, setError] = useState<Error | null>(null)
+  // Holds the active SSE reader so stop() can cancel it
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
 
   const sendMessage = useCallback(
     async (message: SendMessageInput) => {
@@ -63,6 +68,7 @@ export function useChat(options?: UseChatOptions) {
             languageCode: options?.languageCode,
             conversationId,
             conversationTitle,
+            history: message.history ?? [],
           }),
         })
 
@@ -70,6 +76,92 @@ export function useChat(options?: UseChatOptions) {
           throw new Error(`API error: ${response.status}`)
         }
 
+        const contentType = response.headers.get("content-type") ?? ""
+
+        // ── SSE streaming path (grounded responses) ────────────────────────
+        if (contentType.includes("text/event-stream") && response.body) {
+          const reader = response.body.getReader()
+          readerRef.current = reader
+          const decoder = new TextDecoder()
+          let buffer = ""
+
+          // Mutable accumulator — updated on every delta
+          let streamedMessage: UIMessage = {
+            id: generateId(),
+            role: "assistant",
+            content: "",
+            mode: "grounded",
+            sources: [],
+            stored: false,
+          }
+
+          try {
+            outer: while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+
+              buffer += decoder.decode(value, { stream: true })
+              const lines = buffer.split("\n")
+              buffer = lines.pop() ?? ""
+
+              for (const line of lines) {
+                if (!line.startsWith("data: ")) continue
+                const raw = line.slice(6).trim()
+                if (!raw) continue
+
+                let event: Record<string, unknown>
+                try {
+                  event = JSON.parse(raw)
+                } catch {
+                  continue
+                }
+
+                if (event.type === "meta") {
+                  // Hydrate metadata and add placeholder message to the list
+                  streamedMessage = {
+                    ...streamedMessage,
+                    mode: event.mode as UIMessage["mode"],
+                    confidence: event.confidence as "high" | "low" | undefined,
+                    confidenceScore: typeof event.confidenceScore === "number" ? event.confidenceScore : undefined,
+                    sources: Array.isArray(event.sources) ? (event.sources as string[]) : [],
+                    sentiment: event.sentiment as UIMessage["sentiment"],
+                    escalation: event.escalation as UIMessage["escalation"],
+                  }
+                  setMessages((prev) => [...prev, streamedMessage])
+                  setStatus("streaming")
+                } else if (event.type === "text" && typeof event.delta === "string") {
+                  streamedMessage = { ...streamedMessage, content: streamedMessage.content + event.delta }
+                  // Replace the last message (same id) with the updated content
+                  setMessages((prev) => {
+                    const last = prev[prev.length - 1]
+                    if (last?.id === streamedMessage.id) return [...prev.slice(0, -1), streamedMessage]
+                    return [...prev, streamedMessage]
+                  })
+                } else if (event.type === "timeout") {
+                  const msg = "This is taking longer than expected — please try again or contact the Financial Aid office at **(808) 675-3316**."
+                  streamedMessage = { ...streamedMessage, content: msg, mode: "unavailable" }
+                  setMessages((prev) => {
+                    const last = prev[prev.length - 1]
+                    return last?.id === streamedMessage.id
+                      ? [...prev.slice(0, -1), streamedMessage]
+                      : [...prev, streamedMessage]
+                  })
+                  break outer
+                } else if (event.type === "done" || event.type === "error") {
+                  break outer
+                }
+              }
+            }
+          } finally {
+            reader.releaseLock()
+            readerRef.current = null
+            setStatus("idle")
+          }
+
+          return { userMessage, assistantMessage: streamedMessage }
+        }
+
+        // ── JSON path (guards, demo, conversational, fallbacks) ────────────
         const data = await response.json()
         const mode = ["grounded", "demo", "unavailable", "handoff"].includes(data.mode)
           ? data.mode
@@ -102,6 +194,8 @@ export function useChat(options?: UseChatOptions) {
   )
 
   const stop = useCallback(() => {
+    readerRef.current?.cancel().catch(() => undefined)
+    readerRef.current = null
     setStatus("idle")
   }, [])
 

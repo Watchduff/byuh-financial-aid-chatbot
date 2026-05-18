@@ -3,7 +3,7 @@ import { cookies } from "next/headers"
 import { sql, eq, ilike, or } from "drizzle-orm"
 import { db } from "@/db"
 import { chunks, pages } from "@/db/schema"
-import { getEmbedding, generateChatResponse } from "@/lib/openai"
+import { getEmbedding, generateChatResponse, streamChatResponse, type ConversationTurn } from "@/lib/openai"
 import { DEFAULT_LANGUAGE_CODE, getSupportedLanguage, type SupportedLanguage } from "@/lib/languages"
 import { getOrCreateSession } from "@/lib/session"
 
@@ -93,7 +93,7 @@ RULES — follow every one without exception:
 
 2. CONVERSATIONAL TONE: Sound like a knowledgeable friend who works in the Financial Aid office, not a document reader. Use natural affirmations ("Yes!", "Absolutely!", "Great question!") when they fit, but don't overuse them. Vary your openers. Be warm and encouraging — students are often stressed about money.
 
-3. CONTEXT ONLY: Every factual statement must come from the provided context. Never use outside knowledge, assumptions, or guesses. If the context supports the answer, state it confidently.
+3. CONTEXT ONLY: Every factual statement must come from the provided context or the verified facts below. Never use outside knowledge, assumptions, or guesses. If the context or verified facts support the answer, state it confidently.
 
 4. CONCISE FORMAT: 1 to 4 short paragraphs or a brief bullet list. No long essays. Break up text naturally like a real conversation.
 
@@ -103,23 +103,128 @@ RULES — follow every one without exception:
 
 7. OUT-OF-SCOPE: If the question has nothing to do with BYU–Hawaii financial aid, redirect warmly: "I'm set up specifically for BYU–Hawaii financial aid questions! I can help with scholarships, FAFSA, tuition, deadlines, required documents, and the iWork program — want to ask about any of those?"
 
-8. WEAK CONTEXT: If the context does not clearly answer the question: "That's a great question! I don't have that specific detail right now — for the most accurate answer, the Financial Aid office at [financialaid.byuh.edu](https://financialaid.byuh.edu/) or (808) 675-3316 can help you directly. Anything else I can look into for you?"
+8. SCHOLARSHIP QUESTIONS: When a student asks what scholarships are available (or similar general scholarship questions), list the scholarships by student type using the VERIFIED SCHOLARSHIP FACTS below. If the student has not told you whether they are International, Domestic (U.S.), or from Hawaii, ask that one clarifying question before listing — do not deflect to "contact the office" for this. Only direct students to the office for account-specific questions (e.g., "Am I eligible for X?", "What is my scholarship status?", "How do I apply with my specific situation?").
 
-9. PRIVACY: Never ask for Social Security numbers, passwords, FAFSA login credentials, full student ID numbers, passport numbers, bank details, tax documents, medical information, or immigration documents. For account-specific help, direct students to official BYU–Hawaii Financial Aid channels.
+9. DEADLINE QUESTIONS: When asked about financial aid dates or deadlines, cite the VERIFIED DEADLINE FACTS directly — never say you don't have this information.
 
-10. SOURCES: When a URL is available in the context, weave it naturally into the answer (e.g., "you can find the full details at [financialaid.byuh.edu](https://financialaid.byuh.edu/)") rather than listing it as a footnote.
+10. FAFSA QUESTIONS: When asked about FAFSA, explain what it is, who needs it, and the steps including school code 001606 and the March 15 priority deadline — using the VERIFIED FAFSA FACTS below.
 
-11. LANGUAGE: Respond in the user's selected language. Keep office names, email addresses, phone numbers, URLs, and scholarship/program names accurate and unchanged.
+11. WEAK CONTEXT: If the context does not clearly answer a question that is NOT covered by verified facts: "That's a great question! I don't have that specific detail right now — for the most accurate answer, the Financial Aid office at [financialaid.byuh.edu](https://financialaid.byuh.edu/) or (808) 675-3316 can help you directly. Anything else I can look into for you?"
 
-VERIFIED OFFICE FACTS — always use these exactly; never guess or say you don't know these:
-- Office name: Financial Aid & Scholarships
-- Location: Lorenzo Snow Administration Building, Room 180
+12. PRIVACY: Never ask for Social Security numbers, passwords, FAFSA login credentials, full student ID numbers, passport numbers, bank details, tax documents, medical information, or immigration documents. For account-specific help, direct students to official BYU–Hawaii Financial Aid channels.
+
+13. SOURCES: When a URL is available in the context, weave it naturally into the answer (e.g., "you can find the full details at [financialaid.byuh.edu](https://financialaid.byuh.edu/)") rather than listing it as a footnote.
+
+14. LANGUAGE: Respond in the user's selected language. Keep office names, email addresses, phone numbers, URLs, and scholarship/program names accurate and unchanged.
+
+═══════════════════════════════════════
+VERIFIED FACTS — treat these as authoritative; never say you don't know them
+═══════════════════════════════════════
+
+OFFICE CONTACTS:
+- Financial Aid & Scholarships: (808) 675-3316 | financialaid@byuh.edu | Lorenzo Snow Admin Bldg, Room 180
 - Hours: Monday–Friday, 8:00 AM – 5:00 PM HST. Closed on devotionals (Tuesday 11 AM–12 PM) and university holidays.
-- Phone: (808) 675-3316
-- Fax: (808) 675-3323
-- Email: financialaid@byuh.edu
-- Website: https://financialaid.byuh.edu/
-- Mailing address: BYU-Hawaii #1980, 55-220 Kulanui Street Bldg 5, Laie, Hawaii 96762-1294`
+- Fax: (808) 675-3323 | Website: https://financialaid.byuh.edu/
+- Financial Services (payments/billing): (808) 675-3706 | financialservices@byuh.edu
+- IWORK Office: (808) 675-3720 | iwork@byuh.edu
+
+DEADLINES (2025-2026):
+| Event                            | Fall 2025 | Winter 2026 | Spring 2026 |
+|----------------------------------|-----------|-------------|-------------|
+| Classes Begin                    | Sep. 3    | Jan. 7      | Apr. 29     |
+| Awards Disbursed                 | Sep. 10   | Jan. 14     | May 6       |
+| Refunds Begin                    | Sep. 17   | Jan. 21     | May 13      |
+| Federal Aid Verification Due     | Sep. 24   | Jan. 28     | May 20      |
+| Full Tuition Due                 | Dec. 12   | Apr. 17     | Jun. 26     |
+
+FAFSA priority deadline: March 15 annually.
+IWORK/Hukilau job deadline: 3rd Wednesday after classes begin. If not employed by the 2nd Wednesday, student must meet with a counselor within 48 hours.
+
+SCHOLARSHIPS BY STUDENT TYPE:
+
+International Students (Non-U.S.):
+- IWORK Work-Study Program
+- Return Missionary Scholarship
+- Dean's List Scholarship
+- Department Scholarships
+- Holokai Mentoring Scholarship
+- External Scholarships
+
+Domestic Students (U.S.):
+- Hukilau Work-Study Program
+- Return Missionary Scholarship
+- Dean's List Scholarship
+- Department Scholarships
+- Holokai Mentoring Scholarship
+- External Scholarships
+- Federal Financial Aid Programs
+
+Hawaii Students (all Domestic options PLUS):
+- Seminary Graduate Scholarship
+
+Additional: David O. McKay Presidential Scholarship (top merit award, open to all).
+Enrollment requirement: 12+ credits (Fall/Winter) or 8+ credits (Spring).
+When listing scholarships, close with: "For full details, visit [financialaid.byuh.edu/scholarships](https://financialaid.byuh.edu/scholarships) or call (808) 675-3316."
+
+FAFSA FACTS:
+- School code: 001606
+- Priority deadline: March 15
+- Steps: (1) Create FSA ID at studentaid.gov, (2) file FAFSA with code 001606, (3) BYUH receives it in 3-5 business days
+- U.S. citizens/eligible non-citizens: required for federal aid AND need-based BYUH scholarships
+- International students: not eligible for U.S. federal aid — use CES application (new students) or ISAA (continuing students)
+
+TUITION (2025-2026, per semester at 12+ credits):
+- Latter-day Saint students: $3,415 | Per credit hour: $284
+- Non-Latter-day Saint students: $6,830 | Per credit hour: $568
+- Full Cost of Attendance: https://financialaid.byuh.edu/cost-of-attendance
+
+ELIGIBILITY RULES:
+- Students taking 50%+ of credits online are NOT eligible for federal aid
+- Must maintain Satisfactory Academic Progress (SAP)
+- Visiting/non-degree students are NOT eligible for any aid
+
+KEY URLS:
+- Scholarships: https://financialaid.byuh.edu/scholarships
+- IWORK: https://financialaid.byuh.edu/IWORK
+- Hukilau: https://financialaid.byuh.edu/hukilau
+- Federal Aid: https://financialaid.byuh.edu/federal-financial-aid-programs
+- Cost of Attendance: https://financialaid.byuh.edu/cost-of-attendance
+- Forms: https://financialaid.byuh.edu/forms-for-download`
+
+// ---------------------------------------------------------------------------
+// Query normalization  (Category 1 — typo tolerance)
+//
+// Applied to the retrieval query ONLY, not to the message sent to the LLM.
+// Covers misspellings of key terms, numeric shorthand, currency glyphs, and
+// Southeast-Asian discourse particles that appear after the real question.
+// ---------------------------------------------------------------------------
+const QUERY_FIXES: [RegExp, string][] = [
+  // FAFSA misspellings
+  [/\bfafz[ae]\b/gi, "FAFSA"],
+  [/\bfasf[ae]\b/gi, "FAFSA"],
+  [/\bfafda\b/gi, "FAFSA"],
+  // Scholarship misspellings
+  [/\bscholer?ships?\b/gi, "scholarships"],
+  [/\bschollarships?\b/gi, "scholarships"],
+  [/\bscholarshipss\b/gi, "scholarships"],
+  // Currency glyph → plain word (helps keyword search fallback)
+  [/\$\$+/g, "money"],
+  [/\$(?=\s|$)/g, "dollar"],
+  // Numeric shorthand
+  [/\bhow\s+2\b/gi, "how to"],
+  [/\b2\s+apply\b/gi, "to apply"],
+  [/\b4\s+(me|us|students?)\b/gi, "for $1"],
+  // SE Asian discourse particles at end of utterance (strip; they carry no semantic content)
+  [/\s+(lah|lor|mah|sia|leh|bah|wor)\s*[?.!,]?\s*$/i, ""],
+]
+
+function normalizeQuery(query: string): string {
+  let q = query.trim()
+  for (const [pattern, replacement] of QUERY_FIXES) {
+    q = q.replace(pattern, replacement)
+  }
+  return q
+}
 
 // ---------------------------------------------------------------------------
 // Conversational opener guard
@@ -561,8 +666,14 @@ function languageInstruction(language: SupportedLanguage): string {
 // Tries a demo answer first; if none matches, returns the unavailable message.
 // No technical error details are ever included in the response body.
 // ---------------------------------------------------------------------------
-async function buildFallbackResponse(message: string, language: SupportedLanguage): Promise<NextResponse> {
+async function buildFallbackResponse(
+  message: string,
+  language: SupportedLanguage,
+  history: ConversationTurn[] = []
+): Promise<NextResponse> {
   const currentSentiment = detectSentiment(message)
+
+  // 1. Try a demo answer (no network needed)
   const demoAnswer = getDemoAnswer(message)
   if (demoAnswer) {
     console.log("[chat] Serving demo response")
@@ -576,20 +687,71 @@ async function buildFallbackResponse(message: string, language: SupportedLanguag
     })
   }
 
-  console.log("[chat] No demo match — returning unavailable response")
-  const unavailableMessage =
-    "I'm not able to pull up the full knowledge base right now, but I can still help with common questions! " +
-    "Try asking about **scholarships**, **how to apply for financial aid**, **FAFSA**, **tuition costs**, **deadlines**, **required documents**, or the **iWork program**. " +
-    "For anything else, the Financial Aid office is always ready to help at [financialaid.byuh.edu](https://financialaid.byuh.edu/)."
+  // 2. Try answering from the verified facts baked into the system prompt.
+  //    Scholarships, deadlines, FAFSA, and tuition are all there — no retrieval needed.
+  console.log("[chat] Attempting verified-facts response (retrieval unavailable)")
+  try {
+    const userMsg =
+      `${languageInstruction(language)}\n\nUser question: ${message}\n\n` +
+      `Note: The knowledge base is temporarily unavailable. Answer using VERIFIED FACTS ` +
+      `in your system prompt if this question is covered there (scholarships, deadlines, ` +
+      `FAFSA, tuition, office contacts). If it is not covered, redirect to the Financial Aid office.`
+    const answer = await generateChatResponse(SYSTEM_PROMPT, userMsg, history)
+    if (answer.trim()) {
+      console.log("[chat] Verified-facts response succeeded")
+      return NextResponse.json({
+        mode: "grounded" as ResponseMode,
+        message: await localizeResponse(answer, language),
+        confidence: "high",
+        confidenceScore: 85,
+        sources: [],
+        sentiment: currentSentiment,
+      })
+    }
+  } catch {
+    console.warn("[chat] Verified-facts response failed — OpenAI unavailable")
+  }
+
+  // 3. True last resort: specific redirect with no "knowledge base" language
+  console.log("[chat] All fallbacks exhausted — returning redirect")
+  const redirectMessage =
+    "The Financial Aid office is your best resource right now — reach them at " +
+    "[financialaid.byuh.edu](https://financialaid.byuh.edu/) or call **(808) 675-3316**. " +
+    "They're available Monday–Friday, 8 AM–5 PM HST."
 
   return NextResponse.json({
     mode: "unavailable" as ResponseMode,
-    message: await localizeResponse(unavailableMessage, language),
+    message: await localizeResponse(redirectMessage, language),
     confidence: "low",
     confidenceScore: 0,
     sources: [],
     sentiment: currentSentiment,
   })
+}
+
+// ---------------------------------------------------------------------------
+// Retrieval query builder  (Category 2 + 3)
+//
+// Two triggers for context expansion, both prepend recent conversation turns:
+//
+//  1. SHORT message (< 5 words) — "international", "deadlines", "tell me more"
+//  2. VAGUE follow-up — contains a demonstrative reference to prior content
+//     even when ≥ 5 words: "tell me more about that", "can you explain that"
+//
+// The expanded query embeds close to the original topic so retrieval stays
+// on-topic without the user needing to repeat themselves.
+// ---------------------------------------------------------------------------
+const VAGUE_FOLLOWUP_RE =
+  /^(tell me more|more details?|elaborate|explain\s*(that|more|it)?|what about (that|this|it)|and (that|this|it)|go on|continue|more info(rmation)?|what else|i see|uh[- ]?huh|yeah|yes please|ok(ay)?|sure|sounds good|can you explain)/i
+
+function buildRetrievalQuery(message: string, history: ConversationTurn[]): string {
+  if (history.length === 0) return message
+  const wordCount = message.trim().split(/\s+/).filter(Boolean).length
+  const isShort = wordCount < 5
+  const isVague = VAGUE_FOLLOWUP_RE.test(message.trim())
+  if (!isShort && !isVague) return message
+  const recentContext = history.slice(-4).map((t) => t.content).join(" ")
+  return `${recentContext} ${message}`.slice(0, 600)
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +839,19 @@ export async function POST(req: Request) {
     const language = getSupportedLanguage(body.languageCode)
     const currentSentiment = detectSentiment(message)
 
+    // Parse and validate conversation history sent by the frontend (Bug 1 + Bug 3)
+    const rawHistory: unknown[] = Array.isArray(body.history) ? body.history : []
+    const history: ConversationTurn[] = rawHistory
+      .filter(
+        (t): t is { role: string; content: string } =>
+          typeof t === "object" && t !== null && "role" in t && "content" in t
+      )
+      .slice(-6)
+      .map((t) => ({
+        role: (t.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
+        content: String(t.content).slice(0, 1000),
+      }))
+
     if (!message) {
       return NextResponse.json({ error: "Message is required." }, { status: 400 })
     }
@@ -752,13 +927,22 @@ export async function POST(req: Request) {
       })
     }
 
-    // Step 2: Pull relevant chunks from the knowledge base
+    // Step 2: Build the retrieval query.
+    //  a) Normalize typos/shorthand so the vector and keyword searches find the right chunks.
+    //  b) Expand short or vague messages with recent conversation turns for context.
+    // Both transforms apply to retrieval only — the original message goes to the LLM.
+    const normalizedMessage = normalizeQuery(message)
+    const retrievalQuery = buildRetrievalQuery(normalizedMessage, history)
+    if (retrievalQuery !== message) {
+      console.log(`[chat] Retrieval query transformed: "${message}" → "${retrievalQuery.slice(0, 120)}…"`)
+    }
+
     let result: RetrievalResult
     try {
-      result = await retrieveChunks(message)
+      result = await retrieveChunks(retrievalQuery)
     } catch (err) {
       console.error("[chat] Retrieval error:", err)
-      return buildFallbackResponse(message, language)
+      return buildFallbackResponse(message, language, history)
     }
 
     const { rows, confident, confidenceScore, bestDistance } = result
@@ -766,7 +950,7 @@ export async function POST(req: Request) {
     // Step 3: Empty KB — no ingested data yet
     if (rows.length === 0) {
       console.log("[chat] Knowledge base is empty")
-      return buildFallbackResponse(message, language)
+      return buildFallbackResponse(message, language, history)
     }
 
     // Step 4a: Definitely off-topic — cosine distance so high that no financial aid
@@ -783,18 +967,47 @@ export async function POST(req: Request) {
       })
     }
 
-    // Step 4b: Retrieval confidence guard — chunks exist but are too dissimilar to
-    // be trusted. Return a safe "not in my info" response without hallucinating.
-    if (!confident) {
-      console.log("[chat] Low retrieval confidence — returning safe fallback")
-      const lowConfidenceMessage =
-        "I don't have that specific detail in my current information. " +
-        "For the most accurate answer, reach out to the **Financial Aid office** directly or visit [financialaid.byuh.edu](https://financialaid.byuh.edu/) — they'll be able to help you right away. " +
-        "In the meantime, feel free to ask me about **scholarships, FAFSA, tuition costs, deadlines, required documents, or the iWork program**!"
+    // Build context string here — needed by both Step 4b and Step 5
+    const context = rows
+      .map((row, i) => `[Source ${i + 1}]\nTitle: ${row.title}\nURL: ${row.url}\n\n${row.content}`)
+      .join("\n\n---\n\n")
 
+    // Step 4b: Retrieval confidence guard — chunks exist but are dissimilar.
+    // Rather than returning a hardcoded static message, try calling the LLM with the
+    // conversation history and a hint to use verified facts — this handles follow-up
+    // replies like "international student" that look low-confidence in isolation (Bug 1).
+    if (!confident) {
+      console.log("[chat] Low retrieval confidence — attempting verified-facts LLM response")
+      try {
+        const userMsg =
+          `${languageInstruction(language)}\n\nUser question: ${message}\n\n` +
+          `Context from BYU–Hawaii Financial Aid website (partial match):\n${context}\n\n` +
+          `Note: Retrieval confidence is low. Prioritize VERIFIED FACTS from your system prompt ` +
+          `for scholarship, deadline, FAFSA, and tuition questions. If not covered by verified ` +
+          `facts, redirect to the Financial Aid office.`
+        const answer = await generateChatResponse(SYSTEM_PROMPT, userMsg, history)
+        if (answer.trim()) {
+          return NextResponse.json({
+            mode: "grounded" as ResponseMode,
+            message: await localizeResponse(answer, language),
+            confidence: "low",
+            confidenceScore,
+            sources: [],
+            sentiment: currentSentiment,
+          })
+        }
+      } catch (err) {
+        console.warn("[chat] Low-confidence LLM attempt failed:", (err as Error).message)
+      }
+
+      // LLM also failed — give a specific redirect, not a generic "knowledge base" message
+      const redirectMessage =
+        "The Financial Aid office can answer this directly — visit " +
+        "[financialaid.byuh.edu](https://financialaid.byuh.edu/) or call **(808) 675-3316**. " +
+        "They're available Monday–Friday, 8 AM–5 PM HST."
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
-        message: await localizeResponse(lowConfidenceMessage, language),
+        message: await localizeResponse(redirectMessage, language),
         confidence: "low",
         confidenceScore,
         sources: [],
@@ -802,38 +1015,71 @@ export async function POST(req: Request) {
       })
     }
 
-    // Step 5: KB has relevant context — generate a grounded response with OpenAI
-    const context = rows
-      .map((row, i) => `[Source ${i + 1}]\nTitle: ${row.title}\nURL: ${row.url}\n\n${row.content}`)
-      .join("\n\n---\n\n")
+    // Step 5: Stream the grounded response.
+    // Metadata (sources, confidence, sentiment) is sent in the first SSE frame so the
+    // UI can render it immediately while the LLM text streams in.
+    // A 30-second AbortController enforces a hard timeout (Category 5).
+    const sources = Array.from(new Set(rows.map((r) => r.url)))
+    const maybeEscalation =
+      currentSentiment.label === "urgent" || currentSentiment.label === "frustrated"
+        ? escalation(
+            `Detected ${currentSentiment.label} user sentiment.`,
+            currentSentiment.label === "frustrated" ? "high" : "normal"
+          )
+        : undefined
 
     const userMessage = `${languageInstruction(language)}\n\nUser question: ${message}\n\nContext from BYU–Hawaii Financial Aid website:\n${context}`
 
-    let answer: string
-    try {
-      answer = await generateChatResponse(SYSTEM_PROMPT, userMessage)
-      if (!answer.trim()) {
-        answer = "Sorry, I could not generate a response. Please try again."
-      }
-    } catch (err) {
-      // OpenAI is unavailable — KB context was found but generation failed.
-      // Fall back gracefully instead of surfacing a technical error.
-      console.error("[chat] OpenAI generation error:", err)
-      return buildFallbackResponse(message, language)
-    }
+    const enc = new TextEncoder()
+    const abort = new AbortController()
+    const timeoutId = setTimeout(() => abort.abort(), 30_000)
 
-    const sources = Array.from(new Set(rows.map((r) => r.url)))
-    return NextResponse.json({
-      mode: "grounded" as ResponseMode,
-      message: answer,
-      confidence: "high",
-      confidenceScore,
-      sources,
-      sentiment: currentSentiment,
-      escalation:
-        currentSentiment.label === "urgent" || currentSentiment.label === "frustrated"
-          ? escalation(`Detected ${currentSentiment.label} user sentiment.`, currentSentiment.label === "frustrated" ? "high" : "normal")
-          : undefined,
+    const sseStream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        // Frame 1: metadata — sent before any text so the frontend can display
+        // sources and confidence without waiting for the full LLM response.
+        const meta = {
+          type: "meta",
+          mode: "grounded",
+          confidence: "high",
+          confidenceScore,
+          sources,
+          sentiment: currentSentiment,
+          escalation: maybeEscalation,
+        }
+        controller.enqueue(enc.encode(`data: ${JSON.stringify(meta)}\n\n`))
+
+        try {
+          for await (const delta of streamChatResponse(SYSTEM_PROMPT, userMessage, history, abort.signal)) {
+            if (abort.signal.aborted) break
+            controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: "text", delta })}\n\n`))
+          }
+          if (!abort.signal.aborted) {
+            controller.enqueue(enc.encode(`data: {"type":"done"}\n\n`))
+          }
+        } catch (err) {
+          const isAbort = abort.signal.aborted || (err instanceof Error && err.name === "AbortError")
+          if (isAbort) {
+            console.warn("[chat] Stream timed out after 30 s")
+            controller.enqueue(enc.encode(`data: {"type":"timeout"}\n\n`))
+          } else {
+            console.error("[chat] Streaming error:", err)
+            controller.enqueue(enc.encode(`data: {"type":"error"}\n\n`))
+          }
+        } finally {
+          clearTimeout(timeoutId)
+          controller.close()
+        }
+      },
+    })
+
+    return new Response(sseStream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+        Connection: "keep-alive",
+      },
     })
   } catch (error) {
     console.error("[chat] Unhandled error:", error)
