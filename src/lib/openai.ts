@@ -21,17 +21,19 @@ export async function generateChatResponse(
   history: ConversationTurn[] = [],
   signal?: AbortSignal
 ): Promise<string> {
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: systemPrompt },
-      ...history.map((t) => ({ role: t.role, content: t.content })),
-      { role: "user", content: userMessage },
-    ],
-    temperature: 0.1,
-    max_tokens: 800,
-    ...(signal ? { signal } : {}),
-  })
+  const response = await openai.chat.completions.create(
+    {
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...history.map((t) => ({ role: t.role, content: t.content })),
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.1,
+      max_tokens: 800,
+    },
+    signal ? { signal } : undefined
+  )
   return response.choices[0]?.message?.content ?? ""
 }
 
@@ -43,18 +45,20 @@ export async function* streamChatResponse(
   history: ConversationTurn[] = [],
   signal?: AbortSignal
 ): AsyncGenerator<string> {
-  const stream = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: systemPrompt },
-      ...history.map((t) => ({ role: t.role, content: t.content })),
-      { role: "user", content: userMessage },
-    ],
-    temperature: 0.1,
-    max_tokens: 800,
-    stream: true,
-    ...(signal ? { signal } : {}),
-  })
+  const stream = await openai.chat.completions.create(
+    {
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...history.map((t) => ({ role: t.role, content: t.content })),
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.1,
+      max_tokens: 800,
+      stream: true,
+    },
+    signal ? { signal } : undefined
+  )
 
   for await (const chunk of stream) {
     const delta = chunk.choices[0]?.delta?.content

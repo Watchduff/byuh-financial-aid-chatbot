@@ -2,7 +2,6 @@ import { asc, desc, eq } from "drizzle-orm"
 import { db } from "@/db/index"
 import { agentMessages, chatMessages, conversations, supportRequests } from "@/db/schema"
 
-export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
 type MessageRow = typeof chatMessages.$inferSelect
@@ -111,12 +110,22 @@ export async function GET() {
         })
     )
 
-    return Response.json({
-      history: entries
-        .flat()
-        .sort((a, b) => new Date(b.questionAt).getTime() - new Date(a.questionAt).getTime()),
-      agentReplies: agentRepliesByConversation,
-    })
+    return Response.json(
+      {
+        history: entries
+          .flat()
+          .sort((a, b) => new Date(b.questionAt).getTime() - new Date(a.questionAt).getTime()),
+        agentReplies: agentRepliesByConversation,
+      },
+      {
+        headers: {
+          // Cache in the browser for 30s; serve stale for up to 60s while
+          // revalidating in the background. Chat history is read-only historical
+          // data — 30s staleness is acceptable and cuts DB load by ~10×.
+          "Cache-Control": "private, max-age=30, stale-while-revalidate=60",
+        },
+      }
+    )
   } catch (error) {
     console.error("[support/chat-history] Error:", error)
     return Response.json({ error: "Failed to fetch chat history" }, { status: 500 })

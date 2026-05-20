@@ -220,7 +220,9 @@ export default function AdminConsolePage() {
   const adminTypingRefs = useRef<Record<string, boolean>>({})
   const adminTypingOffTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const transcriptContainerRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const replyPanelRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const prevMessageCountsRef = useRef<Record<string, number>>({})
+  const prevPendingCountRef = useRef<number | null>(null)
   const [analyticsYear, setAnalyticsYear] = useState(new Date().getFullYear())
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
@@ -229,6 +231,7 @@ export default function AdminConsolePage() {
   const [monthlyDetail, setMonthlyDetail] = useState<MonthlyDetail | null>(null)
   const [monthlyDetailLoading, setMonthlyDetailLoading] = useState(false)
   const [feedbackStats, setFeedbackStats] = useState<{ totals: { helpful: number; notHelpful: number; total: number }; recent: Array<{ id: number; question: string; answer: string; createdAt: string }> } | null>(null)
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default")
 
   const fetchRequests = useCallback(async () => {
     setError("")
@@ -363,6 +366,42 @@ export default function AdminConsolePage() {
     const answered = visible.filter((request) => statusLabel(request.status) === "Answered").length
     return { pending, answered, all: visible.length }
   }, [requests])
+
+  // Sync notification permission state on mount
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotifPermission(Notification.permission)
+    }
+  }, [])
+
+  // Update browser tab title with pending count so it's visible from any tab
+  useEffect(() => {
+    if (counts.pending > 0) {
+      document.title = `(${counts.pending}) Admin | BYU–Hawaii Financial Aid`
+    } else {
+      document.title = "Admin | BYU–Hawaii Financial Aid"
+    }
+    return () => {
+      document.title = "Admin | BYU–Hawaii Financial Aid"
+    }
+  }, [counts.pending])
+
+  // Fire a browser notification when a new pending request arrives
+  useEffect(() => {
+    if (prevPendingCountRef.current === null) {
+      prevPendingCountRef.current = counts.pending
+      return
+    }
+    if (counts.pending > prevPendingCountRef.current) {
+      if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+        new Notification("New Live Support Request", {
+          body: "A student is waiting for help in Live Support.",
+          icon: "/favicon.ico",
+        })
+      }
+    }
+    prevPendingCountRef.current = counts.pending
+  }, [counts.pending])
 
   const trashCounts = useMemo(() => {
     const deleted = requests.filter((request) => request.status === "deleted")
@@ -526,6 +565,10 @@ export default function AdminConsolePage() {
             body: JSON.stringify({ requestId: id }),
           })
         }
+        // Scroll the reply panel into view after the DOM has rendered
+        setTimeout(() => {
+          replyPanelRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+        }, 80)
       }
       return next
     })
@@ -904,30 +947,12 @@ export default function AdminConsolePage() {
           <nav className="flex flex-1 flex-col items-center gap-3">
             {[
               {
-                label: "Pending",
-                count: counts.pending,
-                active: filter === "pending",
+                label: "Live Support",
+                active: filter === "pending" || filter === "answered" || filter === "all",
+                dot: counts.pending > 0,
                 onClick: () => setFilter("pending" as Filter),
                 icon: (
                   <path fillRule="evenodd" d="M2 5.75A2.75 2.75 0 0 1 4.75 3h10.5A2.75 2.75 0 0 1 18 5.75v8.5A2.75 2.75 0 0 1 15.25 17H4.75A2.75 2.75 0 0 1 2 14.25v-8.5Zm2.75-1.25c-.69 0-1.25.56-1.25 1.25v1h13v-1c0-.69-.56-1.25-1.25-1.25H4.75Zm11.75 3.75h-13v6c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6Z" clipRule="evenodd" />
-                ),
-              },
-              {
-                label: "Answered",
-                count: counts.answered,
-                active: filter === "answered",
-                onClick: () => setFilter("answered" as Filter),
-                icon: (
-                  <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" />
-                ),
-              },
-              {
-                label: "All Requests",
-                count: counts.all,
-                active: filter === "all",
-                onClick: () => setFilter("all" as Filter),
-                icon: (
-                  <path fillRule="evenodd" d="M4.25 3A2.25 2.25 0 0 0 2 5.25v9.5A2.25 2.25 0 0 0 4.25 17h11.5A2.25 2.25 0 0 0 18 14.75v-9.5A2.25 2.25 0 0 0 15.75 3H4.25ZM3.5 7.5h13v7.25c0 .414-.336.75-.75.75H4.25a.75.75 0 0 1-.75-.75V7.5Z" clipRule="evenodd" />
                 ),
               },
               {
@@ -965,7 +990,6 @@ export default function AdminConsolePage() {
                   item.onClick()
                   setSidebarOpen(false)
                 }}
-                title={item.label}
                 aria-label={item.label}
                 className={`group relative flex h-11 w-11 items-center justify-center rounded-lg transition ${
                   item.active
@@ -974,16 +998,15 @@ export default function AdminConsolePage() {
                 }`}
               >
                 {item.active && <span className="absolute -left-3 h-7 w-1 rounded-r-full bg-white" />}
+                {"dot" in item && item.dot && (
+                  <span className="absolute right-1.5 top-1.5 flex h-2.5 w-2.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
+                  </span>
+                )}
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
                   {item.icon}
                 </svg>
-                {item.count > 0 && (
-                  <span className={`absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
-                    item.active ? "bg-[#9E1B34] text-white" : "bg-white text-[#9E1B34]"
-                  }`}>
-                    {item.count > 99 ? "99+" : item.count}
-                  </span>
-                )}
                 <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:translate-x-1 group-hover:opacity-100">
                   {item.label}
                 </span>
@@ -994,7 +1017,6 @@ export default function AdminConsolePage() {
           <button
             type="button"
             onClick={fetchRequests}
-            title="Refresh requests"
             aria-label="Refresh requests"
             className="group relative mb-3 flex h-11 w-11 items-center justify-center rounded-lg text-white/70 transition hover:bg-white/12 hover:text-white"
           >
@@ -1006,7 +1028,7 @@ export default function AdminConsolePage() {
             </span>
           </button>
 
-          <div className="group relative flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white" title={adminName || "Financial Aid Advisor"}>
+          <div className="group relative flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white">
             {(adminName || "A").charAt(0).toUpperCase()}
             <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:translate-x-1 group-hover:opacity-100">
               {adminName || "Financial Aid Advisor"}
@@ -1028,14 +1050,29 @@ export default function AdminConsolePage() {
                 </svg>
               </button>
               <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-[#BA0C2F]/70">
-                  Live Support
-                </p>
                 <h2 className="truncate text-xl font-bold text-slate-950 md:text-2xl">
-                  {activeFilter.label}
+                  {isHistoryView ? "Chat History" : isAnalyticsView ? "Analytics" : isTrashView ? "Trash Bin" : "Live Support"}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">{activeFilter.description}</p>
               </div>
+              {notifPermission !== "granted" && notifPermission !== "denied" && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (typeof window !== "undefined" && "Notification" in window) {
+                      const result = await Notification.requestPermission()
+                      setNotifPermission(result)
+                    }
+                  }}
+                  className="hidden items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 sm:flex"
+                  title="Enable browser notifications for new live support requests"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0">
+                    <path fillRule="evenodd" d="M4 8a6 6 0 1 1 12 0v2.967c0 .348.128.682.36.936l1.2 1.322A1.75 1.75 0 0 1 16.292 16H3.708a1.75 1.75 0 0 1-1.268-2.775l1.2-1.322A1.25 1.25 0 0 0 4 10.967V8Zm6 10a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2Z" clipRule="evenodd" />
+                  </svg>
+                  Enable alerts
+                </button>
+              )}
               <div className="hidden rounded-lg border border-[#e5dede] bg-white px-3 py-2 text-right shadow-sm sm:block">
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
                   {isHistoryView ? "Chats" : isAnalyticsView ? "Questions" : "Visible"}
@@ -1048,6 +1085,34 @@ export default function AdminConsolePage() {
           </header>
 
           <div className={`mx-auto px-4 py-6 md:px-6 ${isHistoryView ? "max-w-none" : "max-w-6xl"}`}>
+            {!isHistoryView && !isAnalyticsView && !isTrashView && (
+              <div className="mb-5 flex gap-2">
+                {([
+                  { id: "pending" as const, label: "Pending", count: counts.pending },
+                  { id: "answered" as const, label: "Answered", count: counts.answered },
+                  { id: "all" as const, label: "All Requests", count: counts.all },
+                ] as const).map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => setFilter(option.id)}
+                    className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+                      filter === option.id
+                        ? "bg-[#9E1B34] text-white shadow-sm"
+                        : "border border-[#e5dede] bg-white text-slate-600 hover:bg-[#fff0f0] hover:text-[#9E1B34]"
+                    }`}
+                  >
+                    {option.label}
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                      filter === option.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
+                    }`}>
+                      {option.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {!isHistoryView && !isAnalyticsView && (
               <div className="mb-6 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-6 py-5">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0 text-slate-400">
@@ -1866,10 +1931,12 @@ export default function AdminConsolePage() {
                           <h2 className="mt-1 line-clamp-2 text-base font-semibold text-slate-900">
                             {request.latestQuestion}
                           </h2>
-                          <p className="mt-3 rounded-lg border border-[#eadfe0] bg-[#fdf8f8] px-4 py-3 text-sm leading-6 text-slate-600">
-                            <span className="font-semibold text-slate-800">Escalation reason:</span>{" "}
-                            {request.chatbotNote}
-                          </p>
+                          {!expanded && (
+                            <p className="mt-3 rounded-lg border border-[#eadfe0] bg-[#fdf8f8] px-4 py-3 text-sm leading-6 text-slate-600">
+                              <span className="font-semibold text-slate-800">Escalation reason:</span>{" "}
+                              {request.chatbotNote}
+                            </p>
+                          )}
 
                           {/* Live draft preview on collapsed card */}
                           {isLive && !expanded && typingStatuses[request.id] && (
@@ -1900,25 +1967,28 @@ export default function AdminConsolePage() {
 
                       {expanded && (
                         <div className="mt-6 border-t border-[#f0e8e8] pt-6">
-                          <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
-                            <div>
-                              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
-                                Live Chat
-                              </p>
-                              <p className="mt-1 text-xs text-slate-400">
-                                {preHistory.length > 0 ? `${preHistory.length} messages before escalation, ` : ""}
-                                {liveMessages.length} live message{liveMessages.length !== 1 ? "s" : ""}
-                              </p>
-                            </div>
-                            <span className="rounded-full border border-[#e5dede] bg-white px-4 py-2 text-xs font-semibold text-slate-500">
-                              {timeline.length} total
-                            </span>
-                          </div>
+                          <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+                            {/* ── Left: transcript ─────────────────────── */}
+                            <div className="flex min-w-0 flex-col">
+                              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                                    Live Chat
+                                  </p>
+                                  <p className="mt-1 text-xs text-slate-400">
+                                    {preHistory.length > 0 ? `${preHistory.length} messages before escalation, ` : ""}
+                                    {liveMessages.length} live message{liveMessages.length !== 1 ? "s" : ""}
+                                  </p>
+                                </div>
+                                <span className="rounded-full border border-[#e5dede] bg-white px-4 py-2 text-xs font-semibold text-slate-500">
+                                  {timeline.length} total
+                                </span>
+                              </div>
 
-                          <div
-                            ref={(el) => { transcriptContainerRefs.current[request.id] = el }}
-                            className="max-h-96 overflow-y-auto rounded-lg border border-[#e5dede] bg-slate-50 p-4"
-                          >
+                              <div
+                                ref={(el) => { transcriptContainerRefs.current[request.id] = el }}
+                                className="max-h-155 min-h-40 overflow-y-auto rounded-lg border border-[#e5dede] bg-slate-50 p-4"
+                              >
                             {timeline.length === 0 ? (
                               <p className="px-3 py-6 text-center text-sm text-slate-400">
                                 No conversation history was saved for this request.
@@ -2003,109 +2073,116 @@ export default function AdminConsolePage() {
 
                               </div>
                             )}
-                          </div>
+                              </div>{/* end transcript scroll */}
+                            </div>{/* end left column */}
 
-                          {!isTrashView && (
-                            <div className="mt-6 rounded-lg border border-[#e5dede] bg-[#fdf8f8] p-6">
-                              {/* Suggested replies */}
-                              {/* Suggested replies */}
-                              {label === "Pending" && (
-                                <div className="mb-5">
-                                  <div className="mb-3 flex items-center justify-between gap-2">
-                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                                      Suggested Replies
-                                    </span>
+                            {/* ── Right: reply panel ───────────────────── */}
+                            {!isTrashView && (
+                              <div
+                                ref={(el) => { replyPanelRefs.current[request.id] = el }}
+                                className="flex flex-col gap-4 rounded-lg border border-[#e5dede] bg-[#fdf8f8] p-5 xl:sticky xl:top-24 xl:self-start"
+                              >
+                                {label === "Pending" && (
+                                  <div>
+                                    <div className="mb-2.5 flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                        Suggested Replies
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => fetchSuggestedReplies(request.id)}
+                                        disabled={suggestingId === request.id}
+                                        className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-[#9E1B34] transition hover:bg-[#fff7f7] disabled:opacity-50"
+                                      >
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
+                                          <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
+                                        </svg>
+                                        {suggestingId === request.id ? "Generating…" : "Regenerate"}
+                                      </button>
+                                    </div>
+
+                                    {suggestingId === request.id && !suggestedReplies[request.id] ? (
+                                      <div className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-slate-50 px-4 py-3 text-xs text-slate-400">
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 animate-spin">
+                                          <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
+                                        </svg>
+                                        Generating suggestions…
+                                      </div>
+                                    ) : suggestedReplies[request.id]?.length > 0 ? (
+                                      <div className="space-y-2">
+                                        {suggestedReplies[request.id].map((suggestion, i) => (
+                                          <button
+                                            key={i}
+                                            type="button"
+                                            onClick={() => handleReplyChange(request.id, suggestion)}
+                                            className="block w-full rounded-lg border border-[#e5dede] bg-white px-3 py-2.5 text-left text-sm leading-6 text-slate-700 transition hover:border-[#9E1B34]/30 hover:bg-[#fff7f7]"
+                                          >
+                                            <span className="mr-2 inline-block rounded bg-[#9E1B34]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#9E1B34]">
+                                              {i + 1}
+                                            </span>
+                                            {suggestion}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                )}
+
+                                <div>
+                                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                                    Reply to user
+                                  </label>
+                                  <textarea
+                                    value={replies[request.id] ?? ""}
+                                    onChange={(event) => handleReplyChange(request.id, event.target.value)}
+                                    onFocus={() => {
+                                      const y = window.scrollY
+                                      requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "instant" }))
+                                    }}
+                                    rows={5}
+                                    placeholder="Type your reply or click a suggestion above…"
+                                    className="w-full resize-none rounded-lg border border-[#dccfd0] bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#BA0C2F]/50 focus:ring-2 focus:ring-[#BA0C2F]/10"
+                                  />
+                                </div>
+
+                                <div className="flex flex-wrap justify-end gap-2">
+                                  {(label === "Pending" || label === "Answered") && (
                                     <button
                                       type="button"
-                                      onClick={() => fetchSuggestedReplies(request.id)}
-                                      disabled={suggestingId === request.id}
-                                      className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-[#9E1B34] transition hover:bg-[#fff7f7] disabled:opacity-50"
+                                      onClick={() => deleteRequest(request.id, label)}
+                                      disabled={deletingId === request.id}
+                                      className="rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
-                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
-                                        <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
-                                      </svg>
-                                      {suggestingId === request.id ? "Generating…" : "Regenerate"}
+                                      {deletingId === request.id ? "Deleting..." : "Delete"}
                                     </button>
-                                  </div>
-
-                                  {suggestingId === request.id && !suggestedReplies[request.id] ? (
-                                    <div className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-slate-50 px-4 py-4 text-xs text-slate-400">
-                                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 animate-spin">
-                                        <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
-                                      </svg>
-                                      Generating suggestions…
-                                    </div>
-                                  ) : suggestedReplies[request.id]?.length > 0 ? (
-                                    <div className="space-y-3">
-                                      {suggestedReplies[request.id].map((suggestion, i) => (
-                                        <button
-                                          key={i}
-                                          type="button"
-                                          onClick={() => handleReplyChange(request.id, suggestion)}
-                                          className="block w-full rounded-lg border border-[#e5dede] bg-white px-4 py-3 text-left text-sm leading-6 text-slate-700 transition hover:border-[#9E1B34]/30 hover:bg-[#fff7f7]"
-                                        >
-                                          <span className="mr-2 inline-block rounded bg-[#9E1B34]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#9E1B34]">
-                                            {i + 1}
-                                          </span>
-                                          {suggestion}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  ) : null}
+                                  )}
+                                  {label === "Pending" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => markDone(request.id)}
+                                      disabled={completingId === request.id}
+                                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {completingId === request.id ? "Marking..." : "Mark as Done"}
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => sendReply(request.id)}
+                                    disabled={
+                                      sendingId === request.id ||
+                                      label !== "Pending" ||
+                                      !adminName.trim() ||
+                                      !replies[request.id]?.trim()
+                                    }
+                                    className="rounded-lg bg-[#BA0C2F] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#a80b2a] disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {sendingId === request.id ? "Sending..." : "Send Reply"}
+                                  </button>
                                 </div>
-                              )}
-
-                              <label className="mb-3 block text-xs font-bold uppercase tracking-wider text-slate-500">
-                                Reply to user
-                              </label>
-                              <textarea
-                                value={replies[request.id] ?? ""}
-                                onChange={(event) => handleReplyChange(request.id, event.target.value)}
-                                onFocus={() => {
-                                  const y = window.scrollY
-                                  requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "instant" }))
-                                }}
-                                rows={3}
-                                placeholder="Type your reply or click a suggestion above…"
-                                className="w-full resize-none rounded-lg border border-[#dccfd0] bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#BA0C2F]/50 focus:ring-2 focus:ring-[#BA0C2F]/10"
-                              />
-                              <div className="mt-3 flex flex-wrap justify-end gap-2">
-                                {(label === "Pending" || label === "Answered") && (
-                                  <button
-                                    type="button"
-                                    onClick={() => deleteRequest(request.id, label)}
-                                    disabled={deletingId === request.id}
-                                    className="rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                  >
-                                    {deletingId === request.id ? "Deleting..." : "Delete"}
-                                  </button>
-                                )}
-                                {label === "Pending" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => markDone(request.id)}
-                                    disabled={completingId === request.id}
-                                    className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
-                                  >
-                                    {completingId === request.id ? "Marking..." : "Mark as Done"}
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => sendReply(request.id)}
-                                  disabled={
-                                    sendingId === request.id ||
-                                    label !== "Pending" ||
-                                    !adminName.trim() ||
-                                    !replies[request.id]?.trim()
-                                  }
-                                  className="rounded-lg bg-[#BA0C2F] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#a80b2a] disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  {sendingId === request.id ? "Sending..." : "Send Reply"}
-                                </button>
                               </div>
-                            </div>
-                          )}
+                            )}
+                          </div>{/* end grid */}
                         </div>
                       )}
                     </article>

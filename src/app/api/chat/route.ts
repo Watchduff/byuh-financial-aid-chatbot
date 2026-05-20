@@ -846,11 +846,12 @@ export async function POST(req: Request) {
         (t): t is { role: string; content: string } =>
           typeof t === "object" && t !== null && "role" in t && "content" in t
       )
-      .slice(-6)
       .map((t) => ({
         role: (t.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
         content: String(t.content).slice(0, 1000),
       }))
+      .filter((t) => t.content.trim().length > 0)
+      .slice(-6)
 
     if (!message) {
       return NextResponse.json({ error: "Message is required." }, { status: 400 })
@@ -1064,7 +1065,10 @@ export async function POST(req: Request) {
             controller.enqueue(enc.encode(`data: {"type":"timeout"}\n\n`))
           } else {
             console.error("[chat] Streaming error:", err)
-            controller.enqueue(enc.encode(`data: {"type":"error"}\n\n`))
+            // Send a readable fallback instead of a silent error so the bubble always has text.
+            const fallback = "I'm having trouble responding right now — please try again. If the problem continues, contact the Financial Aid office at **(808) 675-3316** or [financialaid.byuh.edu](https://financialaid.byuh.edu/)."
+            controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: "text", delta: fallback })}\n\n`))
+            controller.enqueue(enc.encode(`data: {"type":"done"}\n\n`))
           }
         } finally {
           clearTimeout(timeoutId)

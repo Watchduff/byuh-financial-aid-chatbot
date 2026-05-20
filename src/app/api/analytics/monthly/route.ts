@@ -2,7 +2,6 @@ import { asc, eq } from "drizzle-orm"
 import { db } from "@/db/index"
 import { chatMessages, conversations, supportRequests } from "@/db/schema"
 
-export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
 type MessageRow = typeof chatMessages.$inferSelect
@@ -129,7 +128,16 @@ export async function GET(request: Request) {
       { conversations: 0, questions: 0, high: 0, low: 0, escalations: 0 }
     )
 
-    return Response.json({ year, months, totals, availableYears })
+    return Response.json(
+      { year, months, totals, availableYears },
+      {
+        headers: {
+          // Analytics are aggregated historical data — 5-minute cache is safe.
+          // Stale-while-revalidate lets the admin see instant loads on repeat visits.
+          "Cache-Control": "private, max-age=300, stale-while-revalidate=600",
+        },
+      }
+    )
   } catch (error) {
     console.error("[analytics/monthly] Error:", error)
     return Response.json({ error: "Failed to fetch analytics" }, { status: 500 })

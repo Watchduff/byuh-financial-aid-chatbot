@@ -117,7 +117,6 @@ export function useChat(options?: UseChatOptions) {
                 }
 
                 if (event.type === "meta") {
-                  // Hydrate metadata and add placeholder message to the list
                   streamedMessage = {
                     ...streamedMessage,
                     mode: event.mode as UIMessage["mode"],
@@ -127,25 +126,26 @@ export function useChat(options?: UseChatOptions) {
                     sentiment: event.sentiment as UIMessage["sentiment"],
                     escalation: event.escalation as UIMessage["escalation"],
                   }
-                  setMessages((prev) => [...prev, streamedMessage])
+                  const metaSnap = streamedMessage
+                  setMessages((prev) => [...prev, metaSnap])
                   setStatus("streaming")
                 } else if (event.type === "text" && typeof event.delta === "string") {
                   streamedMessage = { ...streamedMessage, content: streamedMessage.content + event.delta }
-                  // Replace the last message (same id) with the updated content
-                  setMessages((prev) => {
-                    const last = prev[prev.length - 1]
-                    if (last?.id === streamedMessage.id) return [...prev.slice(0, -1), streamedMessage]
-                    return [...prev, streamedMessage]
-                  })
+                  // Use map-by-id so the update is never position-dependent.
+                  // Each closure captures its own snapId + snapContent at call time.
+                  const snapId = streamedMessage.id
+                  const snapContent = streamedMessage.content
+                  setMessages((prev) =>
+                    prev.map((m) => (m.id === snapId ? { ...m, content: snapContent } : m))
+                  )
                 } else if (event.type === "timeout") {
                   const msg = "This is taking longer than expected — please try again or contact the Financial Aid office at **(808) 675-3316**."
                   streamedMessage = { ...streamedMessage, content: msg, mode: "unavailable" }
-                  setMessages((prev) => {
-                    const last = prev[prev.length - 1]
-                    return last?.id === streamedMessage.id
-                      ? [...prev.slice(0, -1), streamedMessage]
-                      : [...prev, streamedMessage]
-                  })
+                  const snapId = streamedMessage.id
+                  const timeoutSnap = streamedMessage
+                  setMessages((prev) =>
+                    prev.map((m) => (m.id === snapId ? timeoutSnap : m))
+                  )
                   break outer
                 } else if (event.type === "done" || event.type === "error") {
                   break outer
@@ -155,6 +155,22 @@ export function useChat(options?: UseChatOptions) {
           } finally {
             reader.releaseLock()
             readerRef.current = null
+
+            // If the stream ended with no text (API error, empty LLM response, etc.)
+            // replace the blank bubble with a readable fallback rather than leaving it empty.
+            if (streamedMessage.content === "") {
+              const fallback: UIMessage = {
+                ...streamedMessage,
+                content: "I wasn't able to generate a response. Please try again or contact the Financial Aid office at **(808) 675-3316**.",
+                mode: "unavailable",
+              }
+              streamedMessage = fallback
+              const fid = fallback.id
+              setMessages((prev) =>
+                prev.map((m) => (m.id === fid ? fallback : m))
+              )
+            }
+
             setStatus("idle")
           }
 
