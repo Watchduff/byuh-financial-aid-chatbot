@@ -43,6 +43,19 @@ const SEED_URLS = [
   "https://financialaid.byuh.edu/scholarships",
   "https://financialaid.byuh.edu/IWORK",
   "https://financialaid.byuh.edu/hukilau",
+  // Forms — PDFs the crawler may find only after following several nav links
+  "https://financialaid.byuh.edu/forms",
+  "https://financialaid.byuh.edu/special-circumstance-form",
+  "https://financialaid.byuh.edu/consortiumagreement",
+  // Core aid pages that sit deep in the nav and may fall past the 60-page cap
+  "https://financialaid.byuh.edu/cost-of-attendance",
+  "https://financialaid.byuh.edu/satisfactory-academic-progress",
+  "https://financialaid.byuh.edu/verification",
+  "https://financialaid.byuh.edu/types-of-aid",
+  "https://financialaid.byuh.edu/loans",
+  "https://financialaid.byuh.edu/grants",
+  "https://financialaid.byuh.edu/work-study",
+  "https://financialaid.byuh.edu/apply",
 ]
 
 // 5 concurrent embedding requests — safe default for OpenAI rate limits

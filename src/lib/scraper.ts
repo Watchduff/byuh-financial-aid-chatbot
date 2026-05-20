@@ -84,15 +84,39 @@ async function extractPdfText(url: string): Promise<ScrapedPage> {
 
     const buffer = Buffer.from(await res.arrayBuffer())
 
-    // require() keeps this out of the module graph when PDFs are never hit
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require("pdf-parse") as (
+    const pdfParseModule = require("pdf-parse")
+    // pdf-parse v2 wraps the function in { default: fn }; v1 exports it directly
+    const pdfParse = (typeof pdfParseModule === "function"
+      ? pdfParseModule
+      : pdfParseModule.default) as (
       buf: Buffer
     ) => Promise<{ text: string; info: Record<string, string> }>
-    const data = await pdfParse(buffer)
 
-    const content = data.text
-      .replace(/[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]/g, "") // strip control chars
+    if (typeof pdfParse !== "function") {
+      throw new Error(`pdf-parse did not export a callable function (got ${typeof pdfParseModule})`)
+    }
+
+    const data = await pdfParse(buffer)
+    const rawText: string = data.text ?? ""
+
+    // Reject raw binary — pdf-parse failed silently and returned the file header
+    if (rawText.trimStart().startsWith("%PDF-")) {
+      console.warn(`  ⚠ Rejected (raw binary): ${url}`)
+      throw new Error("PDF extraction returned raw binary content")
+    }
+
+    // Reject garbled output — >30% non-printable chars means extraction failed
+    const nonPrintable = (rawText.match(/[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]/g) ?? []).length
+    if (rawText.length > 0 && nonPrintable / rawText.length > 0.3) {
+      console.warn(
+        `  ⚠ Rejected (${Math.round((nonPrintable / rawText.length) * 100)}% non-printable): ${url}`
+      )
+      throw new Error("PDF extraction returned >30% non-printable characters")
+    }
+
+    const content = rawText
+      .replace(/[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]/g, "")
       .replace(/\s+/g, " ")
       .trim()
 
