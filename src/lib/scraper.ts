@@ -84,23 +84,11 @@ async function extractPdfText(url: string): Promise<ScrapedPage> {
 
     const buffer = Buffer.from(await res.arrayBuffer())
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParseModule = require("pdf-parse")
-    // pdf-parse v2 wraps the function in { default: fn }; v1 exports it directly
-    const pdfParse = (typeof pdfParseModule === "function"
-      ? pdfParseModule
-      : pdfParseModule.default) as (
-      buf: Buffer
-    ) => Promise<{ text: string; info: Record<string, string> }>
+    const { extractText, getDocumentProxy } = await import("unpdf")
+    const pdf = await getDocumentProxy(new Uint8Array(buffer))
+    const { text: rawText } = await extractText(pdf, { mergePages: true })
 
-    if (typeof pdfParse !== "function") {
-      throw new Error(`pdf-parse did not export a callable function (got ${typeof pdfParseModule})`)
-    }
-
-    const data = await pdfParse(buffer)
-    const rawText: string = data.text ?? ""
-
-    // Reject raw binary — pdf-parse failed silently and returned the file header
+    // Reject raw binary — safety net if extraction passes through the file header
     if (rawText.trimStart().startsWith("%PDF-")) {
       console.warn(`  ⚠ Rejected (raw binary): ${url}`)
       throw new Error("PDF extraction returned raw binary content")
@@ -122,10 +110,7 @@ async function extractPdfText(url: string): Promise<ScrapedPage> {
 
     const pathSegment =
       url.split("/").pop()?.split("?")[0]?.replace(/\.pdf$/i, "").replace(/[-_]/g, " ") ?? ""
-    const title =
-      (data.info?.Title as string | undefined)?.trim() ||
-      cleanTitle(pathSegment) ||
-      "PDF Document"
+    const title = cleanTitle(pathSegment) || "PDF Document"
 
     return { url, title, content }
   } finally {

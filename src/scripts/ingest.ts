@@ -38,24 +38,32 @@ const SKIP_EXTENSIONS =
 // Must-have pages — always scraped even if the crawler doesn't discover them.
 // Verified 200 OK on 2026-05-19.
 const SEED_URLS = [
+  // Scholarships
+  "https://financialaid.byuh.edu/scholarships",
   "https://financialaid.byuh.edu/scholarship-faqs",
   "https://financialaid.byuh.edu/deans-list",
-  "https://financialaid.byuh.edu/scholarships",
+  "https://financialaid.byuh.edu/david-o-mckay-presidential-scholarship",
+  "https://financialaid.byuh.edu/return-missionary-scholarship",
+  "https://financialaid.byuh.edu/seminary-graduate-scholarship",
+  "https://financialaid.byuh.edu/department-scholarships",
+  "https://financialaid.byuh.edu/mentoring-scholarship",
+  // Work programs
   "https://financialaid.byuh.edu/IWORK",
   "https://financialaid.byuh.edu/hukilau",
-  // Forms — PDFs the crawler may find only after following several nav links
-  "https://financialaid.byuh.edu/forms",
-  "https://financialaid.byuh.edu/special-circumstance-form",
-  "https://financialaid.byuh.edu/consortiumagreement",
-  // Core aid pages that sit deep in the nav and may fall past the 60-page cap
+  "https://financialaid.byuh.edu/work-study-programs",
+  // Federal aid
+  "https://financialaid.byuh.edu/federal-financial-aid-programs",
+  "https://financialaid.byuh.edu/pell-grants",
+  "https://financialaid.byuh.edu/teach-grant",
+  "https://financialaid.byuh.edu/stafford-loans",
+  "https://financialaid.byuh.edu/parent-plus-loan",
+  "https://financialaid.byuh.edu/external-loans",
+  // Info & forms (forms-for-download links to the PDFs the crawler will follow)
   "https://financialaid.byuh.edu/cost-of-attendance",
-  "https://financialaid.byuh.edu/satisfactory-academic-progress",
-  "https://financialaid.byuh.edu/verification",
-  "https://financialaid.byuh.edu/types-of-aid",
-  "https://financialaid.byuh.edu/loans",
-  "https://financialaid.byuh.edu/grants",
-  "https://financialaid.byuh.edu/work-study",
-  "https://financialaid.byuh.edu/apply",
+  "https://financialaid.byuh.edu/consumer-information",
+  "https://financialaid.byuh.edu/forms-for-download",
+  "https://financialaid.byuh.edu/fin-authorization",
+  "https://financialaid.byuh.edu/contact-us",
 ]
 
 // 5 concurrent embedding requests — safe default for OpenAI rate limits

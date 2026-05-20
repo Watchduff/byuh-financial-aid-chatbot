@@ -25,7 +25,6 @@
     "next": "16.1.6",
     "openai": "^4.104.0",
     "p-limit": "^7.3.0",
-    "pdf-parse": "^2.4.5",
     "pg": "^8.20.0",
     "playwright": "^1.60.0",
     "postcss": "^8.5.8",
@@ -33,12 +32,12 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "unpdf": "^1.6.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.1",
     "@types/node": "^20.19.37",
-    "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
