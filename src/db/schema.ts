@@ -4,6 +4,7 @@ import {
   text,
   integer,
   timestamp,
+  boolean,
   customType,
 } from "drizzle-orm/pg-core"
 
@@ -112,6 +113,16 @@ export const messageFeedback = pgTable("message_feedback", {
   answer: text("answer").notNull(),
   feedback: text("feedback").$type<"helpful" | "not-helpful">().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+})
+
+// typing_states — live typing indicators stored in DB so cross-server polling works
+export const typingStates = pgTable("typing_states", {
+  requestId: text("request_id").primaryKey(),
+  studentTyping: boolean("student_typing").default(false).notNull(),
+  adminTyping: boolean("admin_typing").default(false).notNull(),
+  studentUpdatedAt: timestamp("student_updated_at"),
+  adminUpdatedAt: timestamp("admin_updated_at"),
+  studentDraft: text("student_draft").default("").notNull(),
 })
 
 export type MessageFeedback = typeof messageFeedback.$inferSelect

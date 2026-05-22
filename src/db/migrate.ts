@@ -116,6 +116,17 @@ async function migrate() {
     )
   `
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS typing_states (
+      request_id TEXT PRIMARY KEY,
+      student_typing BOOLEAN NOT NULL DEFAULT FALSE,
+      admin_typing BOOLEAN NOT NULL DEFAULT FALSE,
+      student_updated_at TIMESTAMPTZ,
+      admin_updated_at TIMESTAMPTZ,
+      student_draft TEXT NOT NULL DEFAULT ''
+    )
+  `
+
   console.log("All migrations complete!")
 }
 

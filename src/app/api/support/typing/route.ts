@@ -1,41 +1,27 @@
 import { NextRequest } from "next/server"
+import { eq } from "drizzle-orm"
+import { db } from "@/db/index"
+import { typingStates } from "@/db/schema"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
 type TypingRole = "student" | "admin"
-type TypingState = {
-  studentTyping: boolean
-  adminTyping: boolean
-  studentUpdatedAt: number
-  adminUpdatedAt: number
-  studentDraft: string
-}
-
-const typingByRequest = new Map<string, TypingState>()
 const TYPING_TTL_MS = 3500
 
-function getTypingState(requestId: string): TypingState {
-  const current = typingByRequest.get(requestId)
-  if (current) return current
-
-  const initial: TypingState = {
-    studentTyping: false,
-    adminTyping: false,
-    studentUpdatedAt: 0,
-    adminUpdatedAt: 0,
-    studentDraft: "",
-  }
-  typingByRequest.set(requestId, initial)
-  return initial
-}
-
-function withExpiredStatuses(state: TypingState) {
+function withExpiredStatuses(state: typeof typingStates.$inferSelect) {
   const now = Date.now()
-  const studentTyping = state.studentTyping && now - state.studentUpdatedAt < TYPING_TTL_MS
+  const studentTyping =
+    state.studentTyping &&
+    state.studentUpdatedAt != null &&
+    now - new Date(state.studentUpdatedAt).getTime() < TYPING_TTL_MS
+  const adminTyping =
+    state.adminTyping &&
+    state.adminUpdatedAt != null &&
+    now - new Date(state.adminUpdatedAt).getTime() < TYPING_TTL_MS
   return {
     studentTyping,
-    adminTyping: state.adminTyping && now - state.adminUpdatedAt < TYPING_TTL_MS,
+    adminTyping,
     studentDraft: studentTyping ? state.studentDraft : "",
   }
 }
@@ -51,16 +37,55 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "requestId and valid role are required" }, { status: 400 })
   }
 
-  const state = getTypingState(requestId)
-  const now = Date.now()
+  const now = new Date()
 
   if (role === "student") {
-    state.studentTyping = isTyping
-    state.studentUpdatedAt = now
-    state.studentDraft = isTyping ? draft : ""
+    await db
+      .insert(typingStates)
+      .values({
+        requestId,
+        studentTyping: isTyping,
+        studentUpdatedAt: now,
+        studentDraft: isTyping ? draft : "",
+        adminTyping: false,
+        adminUpdatedAt: null,
+      })
+      .onConflictDoUpdate({
+        target: typingStates.requestId,
+        set: {
+          studentTyping: isTyping,
+          studentUpdatedAt: now,
+          studentDraft: isTyping ? draft : "",
+        },
+      })
   } else {
-    state.adminTyping = isTyping
-    state.adminUpdatedAt = now
+    await db
+      .insert(typingStates)
+      .values({
+        requestId,
+        adminTyping: isTyping,
+        adminUpdatedAt: now,
+        studentTyping: false,
+        studentUpdatedAt: null,
+        studentDraft: "",
+      })
+      .onConflictDoUpdate({
+        target: typingStates.requestId,
+        set: {
+          adminTyping: isTyping,
+          adminUpdatedAt: now,
+        },
+      })
+  }
+
+  const state = await db
+    .select()
+    .from(typingStates)
+    .where(eq(typingStates.requestId, requestId))
+    .then((rows) => rows[0])
+
+  if (!state) {
+    return Response.json({ studentTyping: false, adminTyping: false, studentDraft: "" })
   }
 
   return Response.json(withExpiredStatuses(state))
@@ -73,14 +98,15 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "requestId is required" }, { status: 400 })
   }
 
-  const state = getTypingState(requestId)
-  const statuses = withExpiredStatuses(state)
+  const state = await db
+    .select()
+    .from(typingStates)
+    .where(eq(typingStates.requestId, requestId))
+    .then((rows) => rows[0])
 
-  if (!statuses.studentTyping) {
-    state.studentTyping = false
-    state.studentDraft = ""
+  if (!state) {
+    return Response.json({ studentTyping: false, adminTyping: false, studentDraft: "" })
   }
-  if (!statuses.adminTyping) state.adminTyping = false
 
-  return Response.json(statuses)
+  return Response.json(withExpiredStatuses(state))
 }
