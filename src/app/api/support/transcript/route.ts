@@ -14,6 +14,8 @@ type TranscriptMessage = {
 }
 
 export async function POST(req: NextRequest) {
+  // LIVE_SUPPORT_DISABLED — remove this block to re-enable
+  return Response.json({ error: "Live support is temporarily unavailable." }, { status: 503 })
   try {
     const cookieStore = await cookies()
     const sessionId = await getOrCreateSession(cookieStore)

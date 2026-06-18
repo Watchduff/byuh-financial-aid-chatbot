@@ -85,13 +85,25 @@ function GroundingLabel({ mode, hasSources, uiText }: { mode?: Props["mode"]; ha
   )
 }
 
+type FeedbackReason = "wrong-info" | "too-vague" | "missing-info" | "not-relevant" | "other"
+
+const REASONS: { value: FeedbackReason; label: string }[] = [
+  { value: "wrong-info",    label: "Wrong info" },
+  { value: "too-vague",     label: "Too vague" },
+  { value: "missing-info",  label: "Missing info" },
+  { value: "not-relevant",  label: "Not relevant" },
+  { value: "other",         label: "Other" },
+]
+
 export default function MessageBubble({ role, content, mode, sources, agentName, precedingQuestion, conversationId, onFollowUp, uiText }: Props) {
   const [copied, setCopied] = useState(false)
   const [feedback, setFeedback] = useState<"helpful" | "not-helpful" | null>(null)
+  const [step, setStep] = useState<"idle" | "reason" | "done">("idle")
+  const [selectedReason, setSelectedReason] = useState<FeedbackReason | null>(null)
+  const [comment, setComment] = useState("")
+  const [submitting, setSubmitting] = useState(false)
 
-  async function handleFeedback(value: "helpful" | "not-helpful") {
-    if (feedback) return
-    setFeedback(value)
+  async function submitFeedback(value: "helpful" | "not-helpful", reason?: FeedbackReason, feedbackComment?: string) {
     await fetch("/api/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -100,8 +112,30 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
         question: precedingQuestion ?? "",
         answer: content,
         feedback: value,
+        reason: reason ?? undefined,
+        comment: feedbackComment ?? undefined,
       }),
     }).catch(() => undefined)
+  }
+
+  async function handleThumbsUp() {
+    if (feedback) return
+    setFeedback("helpful")
+    setStep("done")
+    await submitFeedback("helpful")
+  }
+
+  async function handleThumbsDown() {
+    if (feedback) return
+    setFeedback("not-helpful")
+    setStep("reason")
+  }
+
+  async function handleSubmitReason() {
+    setSubmitting(true)
+    await submitFeedback("not-helpful", selectedReason ?? undefined, comment.trim() || undefined)
+    setSubmitting(false)
+    setStep("done")
   }
   const isUser = role === "user"
   const isAgent = role === "agent"
@@ -152,7 +186,7 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
   if (isUser) {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-3xl bg-[#BA0C2F] px-5 py-3.5 text-sm leading-7 text-white shadow-sm md:max-w-[68%]">
+        <div className="max-w-[85%] rounded-3xl bg-ad-accent2 px-5 py-3.5 text-sm leading-7 text-white shadow-sm md:max-w-[68%]">
           <span className="whitespace-pre-wrap">{content}</span>
         </div>
       </div>
@@ -223,7 +257,7 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
               </code>
             ),
             blockquote: ({ children }) => (
-              <blockquote className="my-2 border-l-4 border-[#BA0C2F]/30 pl-3 text-slate-600 italic">
+              <blockquote className="my-2 border-l-4 border-ad-accent2/30 pl-3 text-slate-600 italic">
                 {children}
               </blockquote>
             ),
@@ -233,38 +267,107 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
           {content}
         </ReactMarkdown>
         {sources && sources.length > 0 && <SourcePills sources={sources} uiText={uiText} />}
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-          <button
-            type="button"
-            onClick={() => void handleFeedback("helpful")}
-            disabled={feedback !== null}
-            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold transition disabled:cursor-default ${
-              feedback === "helpful"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-            }`}
-          >
-            {uiText.helpful}
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleFeedback("not-helpful")}
-            disabled={feedback !== null}
-            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold transition disabled:cursor-default ${
-              feedback === "not-helpful"
-                ? "border-amber-200 bg-amber-50 text-amber-700"
-                : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-            }`}
-          >
-            {uiText.notHelpful}
-          </button>
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-500 transition hover:bg-slate-50"
-          >
-            {copied ? uiText.copied : uiText.copy}
-          </button>
+
+        {/* Feedback section */}
+        <div className="mt-4 border-t border-slate-100 pt-3">
+          {step === "done" ? (
+            <div className="flex items-center gap-2 text-sm text-emerald-600">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0">
+                <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clipRule="evenodd" />
+              </svg>
+              <span className="font-medium">Thanks for your feedback — it helps us improve.</span>
+            </div>
+          ) : step === "reason" ? (
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">What was the issue?</p>
+              <div className="flex flex-wrap gap-2">
+                {REASONS.map((r) => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    onClick={() => setSelectedReason(r.value === selectedReason ? null : r.value)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                      selectedReason === r.value
+                        ? "border-[#9E1B34]/30 bg-[#fff0f2] text-[#9E1B34]"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Tell us more (optional)…"
+                rows={2}
+                className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-300 focus:outline-none"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleSubmitReason()}
+                  disabled={submitting}
+                  className="rounded-full bg-[#9E1B34] px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-[#7d1428] disabled:opacity-50"
+                >
+                  {submitting ? "Submitting…" : "Submit feedback"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep("done")}
+                  className="rounded-full border border-slate-200 px-4 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-50"
+                >
+                  Skip
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-slate-400">Was this helpful?</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void handleThumbsUp()}
+                  title="Helpful"
+                  className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                    <path d="M1 8.25a1.25 1.25 0 1 1 2.5 0v7.5a1.25 1.25 0 1 1-2.5 0v-7.5ZM11 3V1.7c0-.268.14-.526.395-.607A2 2 0 0 1 14 3c0 .995-.182 1.948-.514 2.826-.204.536.166 1.174.744 1.174h2.52c1.243 0 2.261 1.01 2.146 2.247a23.864 23.864 0 0 1-1.341 5.974C17.153 16.323 16.072 17 14.9 17h-3.192a3 3 0 0 1-1.341-.317l-2.734-1.381A1.15 1.15 0 0 1 7 14.25V7.024c0-.309.126-.6.351-.815l2.14-2.088A.75.75 0 0 0 9.75 3.5l.388.388c.406.407.674.902.803 1.438L11 3Z" />
+                  </svg>
+                  Helpful
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleThumbsDown()}
+                  title="Not helpful"
+                  className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                    <path d="M18.905 12.75a1.25 1.25 0 1 1-2.5 0v-7.5a1.25 1.25 0 0 1 2.5 0v7.5ZM8.905 17v1.3c0 .268-.14.526-.395.607A2 2 0 0 1 5.905 17c0-.995.182-1.948.514-2.826.204-.536-.166-1.174-.744-1.174h-2.52c-1.243 0-2.261-1.01-2.146-2.247.193-2.08.652-4.082 1.341-5.974C2.752 3.678 3.833 3 5.005 3h3.192a3 3 0 0 1 1.341.317l2.734 1.381c.383.193.633.587.633 1.019v7.226c0 .309-.126.6-.351.815l-2.14 2.088a.75.75 0 0 0-.159.532l-.388-.388a3.002 3.002 0 0 1-.803-1.438L8.905 17Z" />
+                  </svg>
+                  Not helpful
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopy}
+                title="Copy"
+                className="ml-auto flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-400 transition hover:bg-slate-50"
+              >
+                {copied ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5 text-emerald-500">
+                    <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3.5 w-3.5">
+                    <path d="M7 3.5A1.5 1.5 0 0 1 8.5 2h3.879a1.5 1.5 0 0 1 1.06.44l3.122 3.12A1.5 1.5 0 0 1 17 6.622V12.5a1.5 1.5 0 0 1-1.5 1.5h-1v-3.379a3 3 0 0 0-.879-2.121L10.5 5.379A3 3 0 0 0 8.379 4.5H7v-1Z" />
+                    <path d="M4.5 6A1.5 1.5 0 0 0 3 7.5v9A1.5 1.5 0 0 0 4.5 18h7a1.5 1.5 0 0 0 1.5-1.5v-5.879a1.5 1.5 0 0 0-.44-1.06L9.44 6.439A1.5 1.5 0 0 0 8.378 6H4.5Z" />
+                  </svg>
+                )}
+                {copied ? uiText.copied : uiText.copy}
+              </button>
+            </div>
+          )}
         </div>
         {onFollowUp && (
           <div className="mt-3 flex flex-wrap gap-1.5">

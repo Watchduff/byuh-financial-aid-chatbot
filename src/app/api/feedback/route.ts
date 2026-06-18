@@ -9,22 +9,28 @@ export const runtime = "nodejs"
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
-    const { conversationId, question, answer, feedback } = body as {
+    const { conversationId, question, answer, feedback, reason, comment } = body as {
       conversationId?: string
       question?: string
       answer?: string
       feedback?: string
+      reason?: string
+      comment?: string
     }
 
     if (!question || !answer || (feedback !== "helpful" && feedback !== "not-helpful")) {
       return Response.json({ error: "question, answer, and valid feedback are required" }, { status: 400 })
     }
 
+    const validReasons = ["wrong-info", "too-vague", "missing-info", "not-relevant", "other"]
+
     await db.insert(messageFeedback).values({
       conversationId: conversationId ?? null,
       question: question.slice(0, 1000),
       answer: answer.slice(0, 2000),
       feedback,
+      reason: reason && validReasons.includes(reason) ? (reason as "wrong-info" | "too-vague" | "missing-info" | "not-relevant" | "other") : null,
+      comment: comment ? comment.slice(0, 500) : null,
     })
 
     return Response.json({ ok: true })

@@ -50,10 +50,10 @@ export default function IntroScreen({ onStart, onLiveSupport, liveSupportLabel, 
   return (
     <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-5 md:justify-center md:py-6">
       <div className="mb-5 text-center">
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#BA0C2F] text-base font-extrabold text-white shadow-lg">
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-ad-accent2 text-base font-extrabold text-white shadow-lg">
           BYU
         </div>
-        <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-[#BA0C2F]/70">
+        <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-ad-accent2/70">
           BYU-Hawaii · {uiText.financialAid}
         </p>
         <h1 className="mt-1.5 text-3xl font-bold text-slate-900 md:text-4xl">
@@ -70,14 +70,14 @@ export default function IntroScreen({ onStart, onLiveSupport, liveSupportLabel, 
             key={q}
             type="button"
             onClick={() => onStart(q)}
-            className="group rounded-xl border border-[#ede5e6] bg-white px-3.5 py-2.5 text-left text-sm leading-snug text-slate-600 shadow-sm transition hover:border-[#BA0C2F]/35 hover:bg-[#fff7f7] hover:text-slate-800 hover:shadow active:scale-[0.98]"
+            className="group rounded-xl border border-[#ede5e6] bg-white px-3.5 py-2.5 text-left text-sm leading-snug text-slate-600 shadow-sm transition hover:border-ad-accent2/35 hover:bg-[#fff7f7] hover:text-slate-800 hover:shadow active:scale-[0.98]"
           >
             <span className="flex items-start gap-2">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 16 16"
                 fill="currentColor"
-                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#BA0C2F]/50 transition group-hover:text-[#BA0C2F]/70"
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ad-accent2/50 transition group-hover:text-ad-accent2/70"
               >
                 <path
                   fillRule="evenodd"
@@ -92,7 +92,7 @@ export default function IntroScreen({ onStart, onLiveSupport, liveSupportLabel, 
       </div>
 
       <form onSubmit={handleSubmit} className="w-full max-w-2xl">
-        <div className="flex items-end gap-2.5 rounded-2xl border border-[#dccfd0] bg-white p-2.5 shadow-sm transition-shadow focus-within:border-[#BA0C2F]/40 focus-within:shadow-md">
+        <div className="flex items-end gap-2.5 rounded-2xl border border-[#dccfd0] bg-white p-2.5 shadow-sm transition-shadow focus-within:border-ad-accent2/40 focus-within:shadow-md">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -104,7 +104,7 @@ export default function IntroScreen({ onStart, onLiveSupport, liveSupportLabel, 
           <button
             type="submit"
             disabled={!input.trim()}
-            className="flex shrink-0 items-center gap-2 rounded-xl bg-[#BA0C2F] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#a80b2a] active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
+            className="flex shrink-0 items-center gap-2 rounded-xl bg-ad-accent2 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ad-accent active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
           >
             {uiText.ask}
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
@@ -127,19 +127,18 @@ export default function IntroScreen({ onStart, onLiveSupport, liveSupportLabel, 
         <span className="text-[11px] text-slate-400">{uiText.or}</span>
         <div className="h-px flex-1 bg-slate-200" />
       </div>
-      <button
-        type="button"
-        onClick={onLiveSupport}
-        className="mt-3 flex items-center gap-2.5 rounded-xl border border-[#BA0C2F]/20 bg-white px-5 py-2.5 text-sm font-semibold text-[#BA0C2F] shadow-sm transition hover:border-[#BA0C2F]/40 hover:bg-[#fff7f7] hover:shadow active:scale-[0.98]"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0">
-          <path d="M10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM1.49 15.326a.78.78 0 0 1-.358-.442 3 3 0 0 1 4.308-3.516 6.484 6.484 0 0 0-1.905 3.959c-.023.222-.014.442.025.654a4.97 4.97 0 0 1-2.07-.655ZM16.44 15.98a4.97 4.97 0 0 0 2.07-.654.78.78 0 0 0 .357-.442 3 3 0 0 0-4.308-3.517 6.484 6.484 0 0 1 1.907 3.96 2.32 2.32 0 0 1-.026.654ZM18 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM5.304 16.19a.844.844 0 0 1-.277-.71 5 5 0 0 1 9.947 0 .843.843 0 0 1-.277.71A6.975 6.975 0 0 1 10 18a6.974 6.974 0 0 1-4.696-1.81Z" />
-        </svg>
-        {liveSupportLabel === "Live Support Closed" ? uiText.liveSupportClosed : uiText.liveSupportAdvisor}
-      </button>
-      <p className="mt-2 max-w-lg text-center text-[11px] leading-relaxed text-slate-400">
-        {liveSupportNote}
-      </p>
+      <div className="mt-3 flex cursor-not-allowed flex-col items-center gap-1.5">
+        <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-5 py-2.5 text-sm font-semibold text-slate-400 opacity-60 shadow-sm select-none">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0">
+            <path d="M10 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM1.49 15.326a.78.78 0 0 1-.358-.442 3 3 0 0 1 4.308-3.516 6.484 6.484 0 0 0-1.905 3.959c-.023.222-.014.442.025.654a4.97 4.97 0 0 1-2.07-.655ZM16.44 15.98a4.97 4.97 0 0 0 2.07-.654.78.78 0 0 0 .357-.442 3 3 0 0 0-4.308-3.517 6.484 6.484 0 0 1 1.907 3.96 2.32 2.32 0 0 1-.026.654ZM18 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM5.304 16.19a.844.844 0 0 1-.277-.71 5 5 0 0 1 9.947 0 .843.843 0 0 1-.277.71A6.975 6.975 0 0 1 10 18a6.974 6.974 0 0 1-4.696-1.81Z" />
+          </svg>
+          Chat with a Live Advisor
+          <span className="ml-1 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">Coming Soon</span>
+        </div>
+        <p className="text-center text-[11px] leading-relaxed text-slate-400">
+          Live advisor chat is temporarily unavailable.
+        </p>
+      </div>
     </div>
   )
 }

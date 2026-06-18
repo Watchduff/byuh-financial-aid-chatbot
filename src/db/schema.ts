@@ -112,6 +112,8 @@ export const messageFeedback = pgTable("message_feedback", {
   question: text("question").notNull(),
   answer: text("answer").notNull(),
   feedback: text("feedback").$type<"helpful" | "not-helpful">().notNull(),
+  reason: text("reason").$type<"wrong-info" | "too-vague" | "missing-info" | "not-relevant" | "other">(),
+  comment: text("comment"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 })
 

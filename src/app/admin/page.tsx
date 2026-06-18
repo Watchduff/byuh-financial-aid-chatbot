@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { SUPPORT_HOURS_NOTE } from "@/lib/supportHours"
 
 type ChatMessage = {
   id: number
@@ -46,19 +45,28 @@ type ChatHistoryEntry = {
   sources: string[]
 }
 
-type Filter = "pending" | "answered" | "all" | "trash" | "history" | "analytics"
+type Filter = "overview" | "pending" | "answered" | "all" | "trash" | "history" | "analytics" | "knowledge-gaps"
+
+type KnowledgeGap = {
+  question: string
+  count: number
+  lastAskedAt: string
+  confidence: "high" | "low" | null
+  sources: string[]
+  reason: string
+}
 type ConfidenceFilter = "all" | "high" | "low"
 type TypeFilter = "all" | "bot-only" | "escalated"
 type HistoryGroupBy = "day" | "month"
 
 const STATUS_STYLES: Record<string, string> = {
-  pending: "border-amber-200 bg-amber-50 text-amber-800",
-  active: "border-amber-200 bg-amber-50 text-amber-800",
-  answered: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  assigned: "border-blue-200 bg-blue-50 text-blue-800",
-  resolved: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  closed: "border-slate-200 bg-slate-100 text-slate-600",
-  deleted: "border-red-200 bg-red-50 text-red-800",
+  pending:  "border-ad-warn/30  bg-ad-warn/15  text-ad-warn",
+  active:   "border-ad-warn/30  bg-ad-warn/15  text-ad-warn",
+  answered: "border-emerald-700/40 bg-emerald-900/25 text-emerald-300",
+  assigned: "border-blue-700/40 bg-blue-900/25 text-blue-300",
+  resolved: "border-emerald-700/40 bg-emerald-900/25 text-emerald-300",
+  closed:   "border-white/10 bg-white/6 text-ad-muted",
+  deleted:  "border-ad-danger/30 bg-ad-danger/10 text-ad-danger",
 }
 
 type QueueFilter = Exclude<Filter, "trash" | "history" | "analytics">
@@ -68,6 +76,14 @@ const FILTER_OPTIONS: Array<{ id: QueueFilter; label: string; description: strin
   { id: "answered", label: "Answered", description: "Completed or closed support threads" },
   { id: "all", label: "All Requests", description: "Every visible support request" },
 ]
+
+const REASON_LABELS: Record<string, string> = {
+  "wrong-info": "Wrong info",
+  "too-vague": "Too vague",
+  "missing-info": "Missing info",
+  "not-relevant": "Not relevant",
+  "other": "Other",
+}
 
 const TRASH_FILTER = {
   id: "trash" as const,
@@ -85,6 +101,18 @@ const ANALYTICS_FILTER = {
   id: "analytics" as const,
   label: "Analytics",
   description: "Monthly usage statistics and confidence trends",
+}
+
+const OVERVIEW_FILTER = {
+  id: "overview" as const,
+  label: "Overview",
+  description: "At-a-glance summary of conversations, knowledge gaps, and live support",
+}
+
+const KNOWLEDGE_GAPS_FILTER = {
+  id: "knowledge-gaps" as const,
+  label: "Knowledge Gaps",
+  description: "Questions the bot answered with low confidence or no matching source",
 }
 
 type AnalyticsMonth = {
@@ -130,13 +158,6 @@ function formatDate(value: string) {
   })
 }
 
-function formatTime(value: string) {
-  return new Date(value).toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  })
-}
 
 function formatListTimestamp(value: string) {
   return new Date(value).toLocaleString(undefined, {
@@ -180,22 +201,10 @@ function deletedCategory(request: SupportRequest) {
   return request.adminMessages.length > 0 ? "answered" : "pending"
 }
 
-function InlineTypingIndicator({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-[#eadfe0] bg-white px-3 py-2 text-xs text-slate-500">
-      <span>{label}</span>
-      <span className="flex items-center gap-1">
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#9E1B34]/60 [animation-delay:-0.3s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#9E1B34]/60 [animation-delay:-0.15s]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#9E1B34]/60" />
-      </span>
-    </div>
-  )
-}
 
 export default function AdminConsolePage() {
-  const [adminName, setAdminName] = useState("Financial Aid Advisor")
-  const [filter, setFilter] = useState<Filter>("pending")
+  const adminName = "Financial Aid Advisor"
+  const [filter, setFilter] = useState<Filter>("overview")
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all")
   const [historyGroupBy, setHistoryGroupBy] = useState<HistoryGroupBy>("day")
   const [historySearch, setHistorySearch] = useState("")
@@ -230,8 +239,24 @@ export default function AdminConsolePage() {
   const [selectedAnalyticsMonth, setSelectedAnalyticsMonth] = useState<string | null>(null)
   const [monthlyDetail, setMonthlyDetail] = useState<MonthlyDetail | null>(null)
   const [monthlyDetailLoading, setMonthlyDetailLoading] = useState(false)
-  const [feedbackStats, setFeedbackStats] = useState<{ totals: { helpful: number; notHelpful: number; total: number }; recent: Array<{ id: number; question: string; answer: string; createdAt: string }> } | null>(null)
+  const [feedbackStats, setFeedbackStats] = useState<{ totals: { helpful: number; notHelpful: number; total: number }; recent: Array<{ id: number; question: string; answer: string; reason: string | null; comment: string | null; createdAt: string }> } | null>(null)
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default")
+  const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGap[]>([])
+  const [knowledgeGapsLoading, setKnowledgeGapsLoading] = useState(false)
+  const [darkMode, setDarkMode] = useState(true)
+
+  useEffect(() => {
+    const stored = localStorage.getItem("admin-dark-mode")
+    if (stored === "false") setDarkMode(false)
+  }, [])
+
+  function toggleDarkMode() {
+    setDarkMode((prev) => {
+      const next = !prev
+      localStorage.setItem("admin-dark-mode", String(next))
+      return next
+    })
+  }
 
   const fetchRequests = useCallback(async () => {
     setError("")
@@ -288,6 +313,36 @@ export default function AdminConsolePage() {
   useEffect(() => {
     if (filter === "analytics") fetchAnalytics(analyticsYear)
   }, [filter, analyticsYear, fetchAnalytics])
+
+  const fetchKnowledgeGaps = useCallback(async () => {
+    setKnowledgeGapsLoading(true)
+    try {
+      const res = await fetch("/api/knowledge-gaps")
+      if (res.ok) {
+        const data = await res.json()
+        setKnowledgeGaps(data.gaps ?? [])
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setKnowledgeGapsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (filter === "knowledge-gaps" || filter === "overview") fetchKnowledgeGaps()
+  }, [filter, fetchKnowledgeGaps])
+
+  const fetchFeedbackStats = useCallback(async () => {
+    try {
+      const res = await fetch("/api/feedback")
+      if (res.ok) setFeedbackStats(await res.json())
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (filter === "overview") fetchFeedbackStats()
+  }, [filter, fetchFeedbackStats])
 
   useEffect(() => {
     if (!selectedAnalyticsMonth) {
@@ -488,6 +543,11 @@ export default function AdminConsolePage() {
     }
   }, [historyConversations])
 
+  const filteredQuestionsCount = useMemo(() =>
+    filteredHistoryConversations.reduce((sum, c) => sum + c.total, 0),
+    [filteredHistoryConversations]
+  )
+
   const activeHistoryFilterCount = useMemo(() => {
     return [
       confidenceFilter !== "all",
@@ -524,17 +584,59 @@ export default function AdminConsolePage() {
     return notDeleted.filter((request) => statusLabel(request.status).toLowerCase() === filter)
   }, [filter, requests])
 
-  const activeFilter = filter === "trash"
-    ? TRASH_FILTER
-    : filter === "history"
-      ? HISTORY_FILTER
-      : filter === "analytics"
-        ? ANALYTICS_FILTER
-        : FILTER_OPTIONS.find((option) => option.id === filter) ?? FILTER_OPTIONS[0]
-  const recentRequests = requests.filter((request) => request.status !== "deleted").slice(0, 5)
+  const activeFilter = filter === "overview"
+    ? OVERVIEW_FILTER
+    : filter === "trash"
+      ? TRASH_FILTER
+      : filter === "history"
+        ? HISTORY_FILTER
+        : filter === "analytics"
+          ? ANALYTICS_FILTER
+          : filter === "knowledge-gaps"
+            ? KNOWLEDGE_GAPS_FILTER
+            : FILTER_OPTIONS.find((option) => option.id === filter) ?? FILTER_OPTIONS[0]
+  const isOverviewView = filter === "overview"
   const isTrashView = filter === "trash"
   const isHistoryView = filter === "history"
   const isAnalyticsView = filter === "analytics"
+  const isKnowledgeGapsView = filter === "knowledge-gaps"
+
+  // 14-day conversation chart data derived from chatHistory
+  const conversationChart = useMemo(() => {
+    const days: { label: string; date: string; count: number }[] = []
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const dateStr = d.toISOString().slice(0, 10)
+      days.push({
+        date: dateStr,
+        label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        count: 0,
+      })
+    }
+    const conversationDays = new Map<string, Set<string>>()
+    for (const entry of chatHistory) {
+      const day = entry.questionAt.slice(0, 10)
+      if (!conversationDays.has(day)) conversationDays.set(day, new Set())
+      conversationDays.get(day)!.add(entry.conversationId)
+    }
+    for (const slot of days) {
+      slot.count = conversationDays.get(slot.date)?.size ?? 0
+    }
+    return days
+  }, [chatHistory])
+
+  // TODO: replace these with real DB queries
+  const MOCK_RESOLVED_RATE = 72        // % resolved without staff
+  const MOCK_HOURS_SAVED  = 14.5       // staff hours saved this month
+  const MOCK_SATISFACTION = 88         // % helpful feedback
+  const MOCK_TOP_TOPICS = [            // top conversation topics
+    { label: "FAFSA & Aid Application", pct: 38 },
+    { label: "Scholarship Requirements", pct: 27 },
+    { label: "Disbursement Dates", pct: 18 },
+    { label: "SAP & Appeals", pct: 11 },
+    { label: "Work Study / Employment", pct: 6 },
+  ]
 
   useEffect(() => {
     if (!isHistoryView) return
@@ -732,15 +834,19 @@ export default function AdminConsolePage() {
   `
 
   // Builds the feedback HTML block; filteredRecent = not-helpful entries scoped to report period
-  function buildFeedbackSection(filteredRecent: Array<{ id: number; question: string; answer: string; createdAt: string }>) {
+  function buildFeedbackSection(filteredRecent: Array<{ id: number; question: string; answer: string; reason: string | null; comment: string | null; createdAt: string }>) {
     if (!feedbackStats) return ""
     const { helpful, notHelpful, total } = feedbackStats.totals
     const satisfactionPct = total > 0 ? Math.round((helpful / total) * 100) : 0
     const notHelpfulRows = filteredRecent.map((item) => `
       <div class="not-helpful-item">
-        <div class="not-helpful-date">${new Date(item.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
+        <div class="not-helpful-date">
+          ${new Date(item.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+          ${item.reason ? `<span style="margin-left:8px;background:#fee2e2;color:#ef4444;border-radius:99px;padding:1px 8px;font-size:9px;font-weight:700;text-transform:capitalize">${item.reason.replace(/-/g, " ")}</span>` : ""}
+        </div>
         <div class="not-helpful-q">Q: ${item.question}</div>
         <div class="not-helpful-a">A: ${item.answer.slice(0, 300)}${item.answer.length > 300 ? "…" : ""}</div>
+        ${item.comment ? `<div style="margin-top:6px;background:#fef2f2;border:1px solid #fecaca;border-radius:4px;padding:6px 8px;font-size:10px;color:#64748b"><strong style="color:#f87171">User comment:</strong> ${item.comment}</div>` : ""}
       </div>`).join("")
 
     return `
@@ -850,11 +956,12 @@ export default function AdminConsolePage() {
       </tr>`
     }).join("") || `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:24px">No activity recorded this month.</td></tr>`
 
-    // Filter not-helpful responses to this month (selectedAnalyticsMonth is "YYYY-MM")
+    // Filter not-helpful responses to this month; fall back to all recent if none found
     const monthPrefix = selectedAnalyticsMonth ?? ""
-    const monthRecent = (feedbackStats?.recent ?? []).filter(
+    const monthFiltered = (feedbackStats?.recent ?? []).filter(
       (item) => item.createdAt.startsWith(monthPrefix)
     )
+    const monthRecent = monthFiltered.length > 0 ? monthFiltered : (feedbackStats?.recent ?? [])
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -905,14 +1012,9 @@ export default function AdminConsolePage() {
     if (win) { win.document.write(html); win.document.close(); win.focus(); win.print() }
   }
 
-  function openRecentRequest(request: SupportRequest) {
-    setFilter(statusLabel(request.status).toLowerCase() as QueueFilter)
-    setExpandedIds((prev) => new Set(prev).add(request.id))
-    setSidebarOpen(false)
-  }
 
   return (
-    <main className="min-h-screen bg-[#f7f4f2] text-slate-900">
+    <main data-admin-theme={darkMode ? "dark" : "light"} className="min-h-screen bg-ad-bg text-ad-text">
       {sidebarOpen && (
         <button
           type="button"
@@ -947,6 +1049,14 @@ export default function AdminConsolePage() {
           <nav className="flex flex-1 flex-col items-center gap-3">
             {[
               {
+                label: "Overview",
+                active: isOverviewView,
+                onClick: () => setFilter("overview" as Filter),
+                icon: (
+                  <path fillRule="evenodd" d="M9.293 2.293a1 1 0 0 1 1.414 0l7 7A1 1 0 0 1 17 11h-1v6a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6H3a1 1 0 0 1-.707-1.707l7-7Z" clipRule="evenodd" />
+                ),
+              },
+              {
                 label: "Live Support",
                 active: filter === "pending" || filter === "answered" || filter === "all",
                 dot: counts.pending > 0,
@@ -962,6 +1072,15 @@ export default function AdminConsolePage() {
                 onClick: () => setFilter("history" as Filter),
                 icon: (
                   <path fillRule="evenodd" d="M10 3c-4.418 0-8 2.91-8 6.5 0 1.508.635 2.89 1.697 3.993-.102.838-.367 1.522-.667 2.04a.75.75 0 0 0 .889 1.09 8.66 8.66 0 0 0 2.826-1.563A9.43 9.43 0 0 0 10 16c4.418 0 8-2.91 8-6.5S14.418 3 10 3ZM6.75 9.5a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H6.75Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H10Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5h-.008Z" clipRule="evenodd" />
+                ),
+              },
+              {
+                label: "Knowledge Gaps",
+                count: knowledgeGaps.length,
+                active: isKnowledgeGapsView,
+                onClick: () => setFilter("knowledge-gaps" as Filter),
+                icon: (
+                  <path d="M10 1a6 6 0 0 0-3.815 10.631C7.237 12.5 8 13.443 8 14.456v.644a.75.75 0 0 0 .572.729 6.016 6.016 0 0 0 2.856 0A.75.75 0 0 0 12 15.1v-.644c0-1.013.762-1.957 3.815-2.825A6 6 0 0 0 10 1ZM9.5 16.25a.75.75 0 0 0 0 1.5h1a.75.75 0 0 0 0-1.5h-1Z" />
                 ),
               },
               {
@@ -982,7 +1101,9 @@ export default function AdminConsolePage() {
                   <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4Z" clipRule="evenodd" />
                 ),
               },
-            ].map((item) => (
+            ].map((item) => {
+              const isLiveSupportDisabled = item.label === "Live Support"
+              return (
               <button
                 key={item.label}
                 type="button"
@@ -992,13 +1113,15 @@ export default function AdminConsolePage() {
                 }}
                 aria-label={item.label}
                 className={`group relative flex h-11 w-11 items-center justify-center rounded-lg transition ${
-                  item.active
-                    ? "bg-white text-[#9E1B34] shadow-sm"
-                    : "text-white/70 hover:bg-white/12 hover:text-white"
+                  isLiveSupportDisabled
+                    ? "cursor-not-allowed opacity-40 text-white/40"
+                    : item.active
+                      ? "bg-white text-[#9E1B34] shadow-sm"
+                      : "text-white/70 hover:bg-white/12 hover:text-white"
                 }`}
               >
-                {item.active && <span className="absolute -left-3 h-7 w-1 rounded-r-full bg-white" />}
-                {"dot" in item && item.dot && (
+                {item.active && !isLiveSupportDisabled && <span className="absolute -left-3 h-7 w-1 rounded-r-full bg-white" />}
+                {"dot" in item && item.dot && !isLiveSupportDisabled && (
                   <span className="absolute right-1.5 top-1.5 flex h-2.5 w-2.5">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
                     <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
@@ -1011,7 +1134,8 @@ export default function AdminConsolePage() {
                   {item.label}
                 </span>
               </button>
-            ))}
+              )
+            })}
           </nav>
 
           <button
@@ -1037,23 +1161,23 @@ export default function AdminConsolePage() {
         </aside>
 
         <section className="min-w-0 flex-1">
-          <header className="sticky top-0 z-20 border-b border-[#e5dede] bg-[#f7f4f2]/95 px-4 py-4 backdrop-blur md:px-6">
+          <header className="admin-header sticky top-0 z-20 border-b border-white/7 bg-ad-bg/95 px-4 py-4 backdrop-blur md:px-6">
             <div className="mx-auto flex max-w-6xl items-center gap-4">
               <button
                 type="button"
                 onClick={() => setSidebarOpen(true)}
                 aria-label="Open sidebar"
-                className="rounded-lg border border-[#e5dede] bg-white p-2 text-slate-600 shadow-sm transition hover:bg-[#fff7f7] md:hidden"
+                className="rounded-lg border border-white/7 bg-ad-surface p-2 text-ad-muted shadow-sm transition hover:bg-white/5 md:hidden"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
                   <path fillRule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z" clipRule="evenodd" />
                 </svg>
               </button>
               <div className="min-w-0 flex-1">
-                <h2 className="truncate text-xl font-bold text-slate-950 md:text-2xl">
-                  {isHistoryView ? "Chat History" : isAnalyticsView ? "Analytics" : isTrashView ? "Trash Bin" : "Live Support"}
+                <h2 className="truncate text-xl font-bold text-ad-text md:text-2xl">
+                  {isOverviewView ? "Overview" : isHistoryView ? "Chat History" : isAnalyticsView ? "Analytics" : isTrashView ? "Trash Bin" : isKnowledgeGapsView ? "Knowledge Gaps" : "Live Support"}
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">{activeFilter.description}</p>
+                <p className="mt-1 text-sm text-[#787878]">{activeFilter.description}</p>
               </div>
               {notifPermission !== "granted" && notifPermission !== "denied" && (
                 <button
@@ -1064,7 +1188,7 @@ export default function AdminConsolePage() {
                       setNotifPermission(result)
                     }
                   }}
-                  className="hidden items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 sm:flex"
+                  className="hidden items-center gap-1.5 rounded-lg border border-ad-warn/30 bg-ad-warn/10 px-3 py-2 text-xs font-semibold text-ad-warn transition hover:bg-ad-warn/20 sm:flex"
                   title="Enable browser notifications for new live support requests"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0">
@@ -1073,19 +1197,37 @@ export default function AdminConsolePage() {
                   Enable alerts
                 </button>
               )}
-              <div className="hidden rounded-lg border border-[#e5dede] bg-white px-3 py-2 text-right shadow-sm sm:block">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                  {isHistoryView ? "Chats" : isAnalyticsView ? "Questions" : "Visible"}
+              <button
+                type="button"
+                onClick={toggleDarkMode}
+                aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/7 bg-ad-surface text-ad-muted transition hover:bg-ad-raised hover:text-ad-text"
+                title={darkMode ? "Light mode" : "Dark mode"}
+              >
+                {darkMode ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                    <path d="M10 2a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 10 2ZM10 15a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 10 15ZM10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM15.657 5.404a.75.75 0 1 0-1.06-1.06l-1.061 1.06a.75.75 0 0 0 1.06 1.06l1.06-1.06ZM6.464 14.596a.75.75 0 1 0-1.06-1.06l-1.06 1.06a.75.75 0 0 0 1.06 1.06l1.06-1.06ZM18 10a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 18 10ZM5 10a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 5 10ZM14.596 15.657a.75.75 0 0 0 1.06-1.06l-1.06-1.061a.75.75 0 1 0-1.06 1.06l1.06 1.06ZM5.404 6.464a.75.75 0 0 0 1.06-1.06l-1.06-1.06a.75.75 0 1 0-1.061 1.06l1.06 1.06Z" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                    <path fillRule="evenodd" d="M7.455 2.004a.75.75 0 0 1 .26.77 7 7 0 0 0 9.958 7.967.75.75 0 0 1 1.067.853A8.5 8.5 0 1 1 6.647 1.921a.75.75 0 0 1 .808.083Z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </button>
+
+              <div className="hidden rounded-lg border border-white/7 bg-ad-surface px-3 py-2 text-right shadow-sm sm:block">
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">
+                  {isOverviewView ? "Chats" : isHistoryView ? "Questions" : isAnalyticsView ? "Questions" : isKnowledgeGapsView ? "Gaps" : "Visible"}
                 </p>
                 <p className="text-lg font-bold text-[#9E1B34]">
-                  {isHistoryView ? filteredHistoryConversations.length : isAnalyticsView ? (analyticsData?.totals.questions ?? "—") : visibleRequests.length}
+                  {isOverviewView ? historyCounts.conversations : isHistoryView ? filteredQuestionsCount : isAnalyticsView ? (analyticsData?.totals.questions ?? "—") : isKnowledgeGapsView ? knowledgeGaps.length : visibleRequests.length}
                 </p>
               </div>
             </div>
           </header>
 
-          <div className={`mx-auto px-4 py-6 md:px-6 ${isHistoryView ? "max-w-none" : "max-w-6xl"}`}>
-            {!isHistoryView && !isAnalyticsView && !isTrashView && (
+          <div className={`relative mx-auto px-4 py-6 md:px-6 ${isHistoryView ? "max-w-none" : "max-w-6xl"}`}>
+            {!isHistoryView && !isAnalyticsView && !isTrashView && !isKnowledgeGapsView && !isOverviewView && (
               <div className="mb-5 flex gap-2">
                 {([
                   { id: "pending" as const, label: "Pending", count: counts.pending },
@@ -1099,12 +1241,12 @@ export default function AdminConsolePage() {
                     className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition ${
                       filter === option.id
                         ? "bg-[#9E1B34] text-white shadow-sm"
-                        : "border border-[#e5dede] bg-white text-slate-600 hover:bg-[#fff0f0] hover:text-[#9E1B34]"
+                        : "border border-white/7 bg-ad-surface text-ad-muted hover:bg-white/6 hover:text-white"
                     }`}
                   >
                     {option.label}
                     <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                      filter === option.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
+                      filter === option.id ? "bg-white/20 text-white" : "bg-white/8 text-[#787878]"
                     }`}>
                       {option.count}
                     </span>
@@ -1113,15 +1255,15 @@ export default function AdminConsolePage() {
               </div>
             )}
 
-            {!isHistoryView && !isAnalyticsView && (
-              <div className="mb-6 flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-6 py-5">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0 text-slate-400">
+            {!isHistoryView && !isAnalyticsView && !isKnowledgeGapsView && !isOverviewView && (
+              <div className="mb-6 flex items-start gap-3 rounded-lg border border-white/7 bg-ad-raised px-6 py-5">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0 text-ad-dim">
                   <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.253a.25.25 0 0 1 .244.304l-.459 2.066A1.75 1.75 0 0 0 10.747 15H11a.75.75 0 0 0 0-1.5h-.253a.25.25 0 0 1-.244-.304l.459-2.066A1.75 1.75 0 0 0 9.253 9H9Z" clipRule="evenodd" />
                 </svg>
-                <p className="text-xs leading-6 text-slate-500">
-                  <span className="font-semibold text-slate-600">Hours:</span> Mon–Fri, 8 AM–5 PM HST. Closed during devotional (Tue 11 AM–12 PM) and holidays.
-                  <span className="mx-2 text-slate-300">·</span>
-                  <span className="font-semibold text-amber-700">Privacy:</span> Do not collect or store sensitive personal information in live chat — direct account-specific records to official Financial Aid channels.
+                <p className="text-xs leading-6 text-[#787878]">
+                  <span className="font-semibold text-ad-muted">Hours:</span> Mon–Fri, 8 AM–5 PM HST. Closed during devotional (Tue 11 AM–12 PM) and holidays.
+                  <span className="mx-2 text-[#3e3e3e]">·</span>
+                  <span className="font-semibold text-ad-warn">Privacy:</span> Do not collect or store sensitive personal information in live chat — direct account-specific records to official Financial Aid channels.
                 </p>
               </div>
             )}
@@ -1133,8 +1275,8 @@ export default function AdminConsolePage() {
                   { label: "Deleted Answered", count: trashCounts.answered },
                   { label: "All Deleted Requests", count: trashCounts.all },
                 ].map((item) => (
-                  <div key={item.label} className="rounded-lg border border-[#e5dede] bg-white px-6 py-5 shadow-sm">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                  <div key={item.label} className="rounded-lg border border-white/7 bg-ad-surface px-6 py-5 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
                       {item.label}
                     </p>
                     <p className="mt-2 text-2xl font-bold text-[#9E1B34]">{item.count}</p>
@@ -1144,30 +1286,275 @@ export default function AdminConsolePage() {
             )}
 
             {error && (
-              <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-6 py-5 text-sm text-red-700">
+              <div className="mb-5 rounded-lg border border-ad-danger/30 bg-ad-danger/10 px-6 py-5 text-sm text-ad-danger">
                 {error}
               </div>
             )}
 
             {loading ? (
-              <div className="rounded-lg border border-[#e5dede] bg-white py-16 text-center text-sm text-slate-400">
+              <div className="rounded-lg border border-white/7 bg-ad-surface py-16 text-center text-sm text-ad-dim">
                 Loading support requests...
+              </div>
+            ) : isOverviewView ? (
+              /* ═══════════════════════════════════════════
+                 OVERVIEW PAGE
+              ═══════════════════════════════════════════ */
+              <div className="space-y-6">
+                {/* ── Crimson header banner ── */}
+                <div className="rounded-xl bg-ad-accent2 px-6 py-5 shadow-md">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/60">BYU–Hawaii</p>
+                      <h1 className="mt-0.5 text-lg font-bold text-white">Financial Aid Assistant · Admin Console</h1>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                        Live · {counts.pending} active {counts.pending === 1 ? "chat" : "chats"}
+                      </span>
+                      <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
+                        {new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Four metric cards ── */}
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  {[
+                    {
+                      label: "Conversations",
+                      value: historyCounts.conversations,
+                      sub: "All time",
+                      color: "text-ad-text",
+                      real: true,
+                    },
+                    {
+                      label: "Resolved without staff",
+                      value: `${MOCK_RESOLVED_RATE}%`,
+                      sub: "This month · TODO",
+                      color: "text-ad-up",
+                      real: false,
+                    },
+                    {
+                      label: "Staff hours saved",
+                      value: `${MOCK_HOURS_SAVED}h`,
+                      sub: "This month · TODO",
+                      color: "text-ad-warn",
+                      real: false,
+                    },
+                    {
+                      label: "Satisfaction",
+                      value: `${MOCK_SATISFACTION}%`,
+                      sub: "Helpful feedback · TODO",
+                      color: "text-blue-300",
+                      real: false,
+                    },
+                  ].map((card) => (
+                    <div key={card.label} className="rounded-xl border border-white/7 bg-ad-surface px-6 py-5 shadow-sm">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-muted">{card.label}</p>
+                      <p className={`mt-2 text-3xl font-bold ${card.color}`}>{card.value}</p>
+                      <p className="mt-1 text-[10px] text-ad-muted">{card.sub}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* ── Middle row: Knowledge Gaps + Live Support Queue ── */}
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {/* Response Feedback card */}
+                  <div className="rounded-xl border border-white/7 bg-ad-surface p-6 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-emerald-400">
+                            <path d="M1 8.25a1.25 1.25 0 1 1 2.5 0v7.5a1.25 1.25 0 1 1-2.5 0v-7.5ZM11 3V1.7c0-.268.14-.526.395-.607A2 2 0 0 1 14 3c0 .995-.182 1.948-.514 2.826-.204.54.166 1.174.744 1.174h2.52c1.243 0 2.261 1.01 2.146 2.247a23.864 23.864 0 0 1-1.341 5.974C17.153 16.323 16.072 17 14.9 17H8.774c-1.164 0-2.154-.774-2.154-1.938V10.3c0-.54.26-1.02.714-1.365 1.865-1.4 2.703-4.105 2.703-5.935Z" />
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-ad-text">Response Feedback</p>
+                          <p className="text-[10px] text-ad-muted">
+                            {feedbackStats
+                              ? `${feedbackStats.totals.total} rating${feedbackStats.totals.total !== 1 ? "s" : ""} collected`
+                              : "Loading…"}
+                          </p>
+                        </div>
+                      </div>
+                      {feedbackStats && feedbackStats.totals.total > 0 && (
+                        <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold text-emerald-400">
+                          {Math.round((feedbackStats.totals.helpful / feedbackStats.totals.total) * 100)}% helpful
+                        </span>
+                      )}
+                    </div>
+
+                    {feedbackStats && feedbackStats.totals.total > 0 && (
+                      <div className="mb-4 h-2 w-full overflow-hidden rounded-full bg-white/8">
+                        <div
+                          className="h-full rounded-full bg-emerald-500 transition-all"
+                          style={{ width: `${Math.round((feedbackStats.totals.helpful / feedbackStats.totals.total) * 100)}%` }}
+                        />
+                      </div>
+                    )}
+
+                    {!feedbackStats ? (
+                      <p className="py-6 text-center text-xs text-ad-muted">Loading…</p>
+                    ) : feedbackStats.totals.total === 0 ? (
+                      <p className="py-6 text-center text-xs text-ad-muted">No feedback submitted yet.</p>
+                    ) : (
+                      <>
+                        <div className="mb-4 grid grid-cols-2 gap-3">
+                          <div className="rounded-lg border border-white/7 bg-ad-raised px-4 py-3 text-center">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-ad-muted">Helpful</p>
+                            <p className="mt-1 text-xl font-bold text-emerald-400">{feedbackStats.totals.helpful}</p>
+                          </div>
+                          <div className="rounded-lg border border-white/7 bg-ad-raised px-4 py-3 text-center">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-ad-muted">Not Helpful</p>
+                            <p className="mt-1 text-xl font-bold text-ad-danger">{feedbackStats.totals.notHelpful}</p>
+                          </div>
+                        </div>
+                        {feedbackStats.recent.slice(0, 3).map((item) => (
+                          <div key={item.id} className="mb-2 rounded-lg border border-ad-danger/20 bg-ad-danger/8 px-4 py-3">
+                            <p className="line-clamp-2 text-sm font-semibold text-ad-text">{item.question}</p>
+                            {item.reason && (
+                              <span className="mt-1.5 inline-block rounded-full bg-ad-danger/15 px-2 py-0.5 text-[10px] font-bold text-ad-danger">
+                                {REASON_LABELS[item.reason] ?? item.reason}
+                              </span>
+                            )}
+                            {item.comment && (
+                              <p className="mt-1 text-[11px] italic text-ad-muted">&ldquo;{item.comment}&rdquo;</p>
+                            )}
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setFilter("analytics")}
+                          className="mt-2 w-full rounded-lg border border-white/7 py-2 text-xs font-semibold text-ad-muted transition hover:bg-white/6"
+                        >
+                          View full analytics →
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Top topics */}
+                  <div className="rounded-xl border border-white/7 bg-ad-surface p-6 shadow-sm">
+                    <p className="mb-1 text-sm font-bold text-ad-text">Top topics</p>
+                    <p className="mb-5 text-[10px] text-ad-muted">TODO: real topic classification</p>
+                    <div className="space-y-3">
+                      {MOCK_TOP_TOPICS.map((topic) => (
+                        <div key={topic.label}>
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span className="text-xs font-semibold text-ad-text">{topic.label}</span>
+                            <span className="text-[10px] text-ad-muted">{topic.pct}%</span>
+                          </div>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/8">
+                            <div className="h-full rounded-full bg-ad-accent2" style={{ width: `${topic.pct}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Bottom row: 14-day chart + Live Support Queue ── */}
+                <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+                  {/* 14-day conversations bar chart */}
+                  <div className="rounded-xl border border-white/7 bg-ad-surface p-6 shadow-sm">
+                    <p className="mb-1 text-sm font-bold text-ad-text">Conversations · last 14 days</p>
+                    <p className="mb-5 text-[10px] text-ad-muted">Unique conversations per day from chat history</p>
+                    {conversationChart.every((d) => d.count === 0) ? (
+                      <p className="py-8 text-center text-xs text-ad-muted">No conversation data yet.</p>
+                    ) : (() => {
+                      const max = Math.max(...conversationChart.map((d) => d.count), 1)
+                      const BAR_H = 160
+                      const step = max <= 5 ? 1 : max <= 15 ? 5 : 10
+                      const ticks: number[] = []
+                      for (let t = 0; t <= max; t += step) ticks.push(t)
+                      if (ticks[ticks.length - 1] < max) ticks.push(max)
+                      return (
+                        <div className="flex gap-3">
+                          {/* Y-axis labels */}
+                          <div className="relative shrink-0 w-5" style={{ height: BAR_H + 20 }}>
+                            {ticks.map((t) => (
+                              <span
+                                key={t}
+                                className="absolute right-0 text-right text-[9px] leading-none text-ad-muted -translate-y-1/2"
+                                style={{ bottom: `${(t / max) * BAR_H + 20}px` }}
+                              >
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                          {/* Chart body */}
+                          <div className="relative flex-1">
+                            {/* Horizontal grid lines */}
+                            <div className="pointer-events-none absolute inset-x-0" style={{ bottom: 20, height: BAR_H }}>
+                              {ticks.map((t) => (
+                                <div
+                                  key={t}
+                                  className="absolute left-0 right-0 border-t border-white/8"
+                                  style={{ bottom: `${(t / max) * BAR_H}px` }}
+                                />
+                              ))}
+                            </div>
+                            {/* Bars + date labels */}
+                            <div className="flex items-end gap-1 pb-5" style={{ height: BAR_H + 20 }}>
+                              {conversationChart.map((day) => {
+                                const barH = Math.max(day.count > 0 ? 3 : 0, (day.count / max) * BAR_H)
+                                return (
+                                  <div key={day.date} className="group relative flex flex-1 flex-col items-center">
+                                    <div
+                                      className="w-full rounded-t-sm bg-ad-accent2 transition-all group-hover:bg-ad-accent"
+                                      style={{ height: `${barH}px` }}
+                                    />
+                                    <span className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-950 px-1.5 py-0.5 text-[9px] font-bold text-white opacity-0 shadow transition-opacity group-hover:opacity-100">
+                                      {day.count}
+                                    </span>
+                                    <span className="mt-1 text-[8px] text-ad-muted">{day.label.split(" ")[1]}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+
+                  {/* Live Support Queue card — graded out until feature is enabled */}
+                  <div className="rounded-xl border border-white/5 bg-ad-surface/50 p-6 shadow-sm opacity-50">
+                    <div className="mb-4 flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-ad-muted/10">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 text-ad-muted">
+                          <path fillRule="evenodd" d="M2 5.75A2.75 2.75 0 0 1 4.75 3h10.5A2.75 2.75 0 0 1 18 5.75v8.5A2.75 2.75 0 0 1 15.25 17H4.75A2.75 2.75 0 0 1 2 14.25v-8.5Zm2.75-1.25c-.69 0-1.25.56-1.25 1.25v1h13v-1c0-.69-.56-1.25-1.25-1.25H4.75Zm11.75 3.75h-13v6c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6Z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-ad-muted">Live Support Queue</p>
+                        <p className="text-[10px] text-ad-dim">Coming soon</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-center py-8 text-center">
+                      <span className="rounded-full border border-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-ad-dim">Coming Soon</span>
+                      <p className="mt-3 text-xs text-ad-dim">Live advisor support is temporarily disabled.</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : isAnalyticsView ? (
               <div className="space-y-5">
-                <section className="rounded-lg border border-[#d8e0e8] bg-white px-6 py-6 shadow-sm">
+                <section className="rounded-lg border border-white/7 bg-ad-surface px-6 py-6 shadow-sm">
                   {/* Header row: view toggle + year dropdown + print */}
                   <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
                     <div className="flex flex-wrap items-center gap-3">
                       {/* Yearly / Monthly toggle */}
-                      <div className="flex items-center gap-1 rounded-xl border border-[#e5dede] bg-slate-50 p-1">
+                      <div className="flex items-center gap-1 rounded-xl border border-white/7 bg-ad-raised p-1">
                         <button
                           type="button"
                           onClick={() => setAnalyticsView("yearly")}
                           className={`rounded-lg px-5 py-2 text-sm font-bold transition ${
                             analyticsView === "yearly"
                               ? "bg-[#9E1B34] text-white shadow-sm"
-                              : "text-slate-500 hover:text-slate-800"
+                              : "text-[#787878] hover:text-[#e0e0e0]"
                           }`}
                         >
                           Yearly
@@ -1186,7 +1573,7 @@ export default function AdminConsolePage() {
                           className={`rounded-lg px-5 py-2 text-sm font-bold transition ${
                             analyticsView === "monthly"
                               ? "bg-[#9E1B34] text-white shadow-sm"
-                              : "text-slate-500 hover:text-slate-800"
+                              : "text-[#787878] hover:text-[#e0e0e0]"
                           }`}
                         >
                           Monthly
@@ -1196,14 +1583,14 @@ export default function AdminConsolePage() {
                       {/* Year dropdown — only shown in Yearly view */}
                       {analyticsView === "yearly" && (
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Year</span>
+                          <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">Year</span>
                           <select
                             value={analyticsYear}
                             onChange={(e) => {
                               setAnalyticsYear(Number(e.target.value))
                               setSelectedAnalyticsMonth(null)
                             }}
-                            className="rounded-lg border border-[#e5dede] bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-[#9E1B34]/50 focus:ring-2 focus:ring-[#9E1B34]/10"
+                            className="rounded-lg border border-white/7 bg-ad-surface px-3 py-2 text-sm font-semibold text-[#c4c4c4] outline-none focus:border-[#9E1B34]/50 focus:ring-2 focus:ring-[#9E1B34]/10"
                           >
                             {(analyticsData?.availableYears ?? Array.from({ length: 3 }, (_, i) => new Date().getFullYear() - i)).map((y) => (
                               <option key={y} value={y}>{y}</option>
@@ -1219,7 +1606,7 @@ export default function AdminConsolePage() {
                         <button
                           type="button"
                           onClick={printAnalyticsReport}
-                          className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                          className="flex items-center gap-2 rounded-lg border border-white/7 bg-ad-surface px-4 py-2 text-sm font-semibold text-ad-muted transition hover:bg-ad-raised"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                             <path fillRule="evenodd" d="M5 4v3H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2h1a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-1V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1Zm2 0h6v3H7V4Zm-1 9v-1h8v3H6v-2Zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" clipRule="evenodd" />
@@ -1231,7 +1618,7 @@ export default function AdminConsolePage() {
                           type="button"
                           onClick={printMonthlyReport}
                           disabled={!monthlyDetail}
-                          className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="flex items-center gap-2 rounded-lg border border-white/7 bg-ad-surface px-4 py-2 text-sm font-semibold text-ad-muted transition hover:bg-ad-raised disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                             <path fillRule="evenodd" d="M5 4v3H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2h1a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-1V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1Zm2 0h6v3H7V4Zm-1 9v-1h8v3H6v-2Zm9-5a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" clipRule="evenodd" />
@@ -1243,71 +1630,76 @@ export default function AdminConsolePage() {
                   </div>
 
                   {analyticsLoading ? (
-                    <p className="py-10 text-center text-sm text-slate-400">Loading analytics...</p>
+                    <p className="py-10 text-center text-sm text-ad-dim">Loading analytics...</p>
                   ) : analyticsData ? (
                     analyticsView === "yearly" ? (
                       <>
                         {/* Yearly totals */}
-                        <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                        <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
                           Yearly Summary — {analyticsData.year}
                         </p>
                         <div className="mb-8 grid gap-4 sm:grid-cols-5">
                           {[
-                            { label: "Conversations", value: analyticsData.totals.conversations },
-                            { label: "Questions", value: analyticsData.totals.questions },
-                            { label: "High Confidence", value: analyticsData.totals.high },
-                            { label: "Low Confidence", value: analyticsData.totals.low },
-                            { label: "Escalations", value: analyticsData.totals.escalations },
+                            { label: "Conversations",  value: analyticsData.totals.conversations, conf: "all" as ConfidenceFilter, type: "all"       as TypeFilter },
+                            { label: "Questions",      value: analyticsData.totals.questions,     conf: "all" as ConfidenceFilter, type: "all"       as TypeFilter },
+                            { label: "High Confidence",value: analyticsData.totals.high,          conf: "high" as ConfidenceFilter,type: "all"       as TypeFilter },
+                            { label: "Low Confidence", value: analyticsData.totals.low,           conf: "low"  as ConfidenceFilter,type: "all"       as TypeFilter },
+                            { label: "Escalations",    value: analyticsData.totals.escalations,   conf: "all" as ConfidenceFilter, type: "escalated" as TypeFilter },
                           ].map((item) => (
-                            <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-6 py-5">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                            <button
+                              key={item.label}
+                              onClick={() => { setFilter("history"); setConfidenceFilter(item.conf); setTypeFilter(item.type); }}
+                              className="group rounded-lg border border-white/7 bg-ad-raised px-6 py-5 text-left transition hover:border-ad-accent/40 hover:bg-ad-surface hover:shadow-sm"
+                            >
+                              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">{item.label}</p>
                               <p className="mt-1 text-2xl font-bold text-[#9E1B34]">{item.value}</p>
-                            </div>
+                              <p className="mt-2 text-[9px] font-semibold text-ad-accent opacity-0 transition group-hover:opacity-100">View →</p>
+                            </button>
                           ))}
                         </div>
 
                         {/* Monthly table — all months visible */}
-                        <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                        <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
                           Monthly Breakdown — {analyticsData.year}
                         </p>
-                        <div className="overflow-hidden rounded-lg border border-[#e5dede]">
+                        <div className="overflow-hidden rounded-lg border border-white/7">
                           <table className="w-full text-sm">
                             <thead>
-                              <tr className="border-b border-[#e5dede] bg-slate-50">
-                                <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Month</th>
-                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Conversations</th>
-                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Questions</th>
-                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">High</th>
-                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Low</th>
-                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Escalations</th>
+                              <tr className="border-b border-white/7 bg-ad-raised">
+                                <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Month</th>
+                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Conversations</th>
+                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Questions</th>
+                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">High</th>
+                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Low</th>
+                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Escalations</th>
                               </tr>
                             </thead>
                             <tbody>
                               {analyticsData.months.map((row) => (
-                                <tr key={row.month} className="border-b border-[#f0eaea] last:border-0">
-                                  <td className="px-4 py-3 font-semibold text-slate-800">{row.label}</td>
-                                  <td className="px-4 py-3 text-right text-slate-700">{row.conversations}</td>
-                                  <td className="px-4 py-3 text-right text-slate-700">{row.questions}</td>
+                                <tr key={row.month} className="border-b border-white/5 last:border-0">
+                                  <td className="px-4 py-3 font-semibold text-[#e0e0e0]">{row.label}</td>
+                                  <td className="px-4 py-3 text-right text-[#c4c4c4]">{row.conversations}</td>
+                                  <td className="px-4 py-3 text-right text-[#c4c4c4]">{row.questions}</td>
                                   <td className="px-4 py-3 text-right">
-                                    <span className={row.high > 0 ? "font-semibold text-emerald-700" : "text-slate-300"}>{row.high}</span>
+                                    <span className={row.high > 0 ? "font-semibold text-emerald-300" : "text-[#3e3e3e]"}>{row.high}</span>
                                   </td>
                                   <td className="px-4 py-3 text-right">
-                                    <span className={row.low > 0 ? "font-semibold text-amber-700" : "text-slate-300"}>{row.low}</span>
+                                    <span className={row.low > 0 ? "font-semibold text-ad-warn" : "text-[#3e3e3e]"}>{row.low}</span>
                                   </td>
                                   <td className="px-4 py-3 text-right">
-                                    <span className={row.escalations > 0 ? "font-semibold text-red-700" : "text-slate-300"}>{row.escalations}</span>
+                                    <span className={row.escalations > 0 ? "font-semibold text-ad-danger" : "text-[#3e3e3e]"}>{row.escalations}</span>
                                   </td>
                                 </tr>
                               ))}
                             </tbody>
                             <tfoot>
-                              <tr className="border-t-2 border-[#e5dede] bg-slate-50">
-                                <td className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Year Total</td>
-                                <td className="px-4 py-3 text-right font-bold text-slate-800">{analyticsData.totals.conversations}</td>
-                                <td className="px-4 py-3 text-right font-bold text-slate-800">{analyticsData.totals.questions}</td>
-                                <td className="px-4 py-3 text-right font-bold text-emerald-700">{analyticsData.totals.high}</td>
-                                <td className="px-4 py-3 text-right font-bold text-amber-700">{analyticsData.totals.low}</td>
-                                <td className="px-4 py-3 text-right font-bold text-red-700">{analyticsData.totals.escalations}</td>
+                              <tr className="border-t-2 border-white/7 bg-ad-raised">
+                                <td className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[#787878]">Year Total</td>
+                                <td className="px-4 py-3 text-right font-bold text-[#e0e0e0]">{analyticsData.totals.conversations}</td>
+                                <td className="px-4 py-3 text-right font-bold text-[#e0e0e0]">{analyticsData.totals.questions}</td>
+                                <td className="px-4 py-3 text-right font-bold text-emerald-300">{analyticsData.totals.high}</td>
+                                <td className="px-4 py-3 text-right font-bold text-ad-warn">{analyticsData.totals.low}</td>
+                                <td className="px-4 py-3 text-right font-bold text-ad-danger">{analyticsData.totals.escalations}</td>
                               </tr>
                             </tfoot>
                           </table>
@@ -1317,11 +1709,11 @@ export default function AdminConsolePage() {
                       /* Monthly view */
                       <>
                         <div className="mb-5 flex flex-wrap items-center gap-3">
-                          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Select Month</p>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">Select Month</p>
                           <select
                             value={selectedAnalyticsMonth ?? ""}
                             onChange={(e) => setSelectedAnalyticsMonth(e.target.value)}
-                            className="rounded-lg border border-[#e5dede] bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-[#9E1B34]/50 focus:ring-2 focus:ring-[#9E1B34]/10"
+                            className="rounded-lg border border-white/7 bg-ad-surface px-3 py-2 text-sm font-semibold text-[#c4c4c4] outline-none focus:border-[#9E1B34]/50 focus:ring-2 focus:ring-[#9E1B34]/10"
                           >
                             {analyticsData.months.map((m) => (
                               <option key={m.month} value={m.month}>{m.label}</option>
@@ -1330,106 +1722,111 @@ export default function AdminConsolePage() {
                         </div>
 
                         {monthlyDetailLoading ? (
-                          <p className="py-10 text-center text-sm text-slate-400">Loading monthly data...</p>
+                          <p className="py-10 text-center text-sm text-ad-dim">Loading monthly data...</p>
                         ) : monthlyDetail ? (
                           <>
-                            <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                            <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
                               Monthly Summary — {monthlyDetail.label}
                             </p>
                             <div className="mb-8 grid gap-4 sm:grid-cols-5">
                               {[
-                                { label: "Conversations", value: monthlyDetail.totals.conversations },
-                                { label: "Questions", value: monthlyDetail.totals.questions },
-                                { label: "High Confidence", value: monthlyDetail.totals.high },
-                                { label: "Low Confidence", value: monthlyDetail.totals.low },
-                                { label: "Escalations", value: monthlyDetail.totals.escalations },
+                                { label: "Conversations",  value: monthlyDetail.totals.conversations, conf: "all" as ConfidenceFilter, type: "all"       as TypeFilter },
+                                { label: "Questions",      value: monthlyDetail.totals.questions,     conf: "all" as ConfidenceFilter, type: "all"       as TypeFilter },
+                                { label: "High Confidence",value: monthlyDetail.totals.high,          conf: "high" as ConfidenceFilter,type: "all"       as TypeFilter },
+                                { label: "Low Confidence", value: monthlyDetail.totals.low,           conf: "low"  as ConfidenceFilter,type: "all"       as TypeFilter },
+                                { label: "Escalations",    value: monthlyDetail.totals.escalations,   conf: "all" as ConfidenceFilter, type: "escalated" as TypeFilter },
                               ].map((item) => (
-                                <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-6 py-5">
-                                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                                <button
+                                  key={item.label}
+                                  onClick={() => { setFilter("history"); setConfidenceFilter(item.conf); setTypeFilter(item.type); }}
+                                  className="group rounded-lg border border-white/7 bg-ad-raised px-6 py-5 text-left transition hover:border-ad-accent/40 hover:bg-ad-surface hover:shadow-sm"
+                                >
+                                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">{item.label}</p>
                                   <p className="mt-1 text-2xl font-bold text-[#9E1B34]">{item.value}</p>
-                                </div>
+                                  <p className="mt-2 text-[9px] font-semibold text-ad-accent opacity-0 transition group-hover:opacity-100">View →</p>
+                                </button>
                               ))}
                             </div>
 
-                            <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                            <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
                               Daily Breakdown — {monthlyDetail.label}
                             </p>
-                            <div className="overflow-hidden rounded-lg border border-[#e5dede]">
+                            <div className="overflow-hidden rounded-lg border border-white/7">
                               <table className="w-full text-sm">
                                 <thead>
-                                  <tr className="border-b border-[#e5dede] bg-slate-50">
-                                    <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Day</th>
-                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Conversations</th>
-                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Questions</th>
-                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">High</th>
-                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Low</th>
-                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Escalations</th>
+                                  <tr className="border-b border-white/7 bg-ad-raised">
+                                    <th className="px-4 py-3 text-left text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Day</th>
+                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Conversations</th>
+                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Questions</th>
+                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">High</th>
+                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Low</th>
+                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Escalations</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {monthlyDetail.days.filter((d) => d.questions > 0 || d.escalations > 0).map((d) => (
-                                    <tr key={d.date} className="border-b border-[#f0eaea] last:border-0">
-                                      <td className="px-4 py-3 font-semibold text-slate-800">{d.label}</td>
-                                      <td className="px-4 py-3 text-right text-slate-700">{d.conversations}</td>
-                                      <td className="px-4 py-3 text-right text-slate-700">{d.questions}</td>
+                                    <tr key={d.date} className="border-b border-white/5 last:border-0">
+                                      <td className="px-4 py-3 font-semibold text-[#e0e0e0]">{d.label}</td>
+                                      <td className="px-4 py-3 text-right text-[#c4c4c4]">{d.conversations}</td>
+                                      <td className="px-4 py-3 text-right text-[#c4c4c4]">{d.questions}</td>
                                       <td className="px-4 py-3 text-right">
-                                        <span className={d.high > 0 ? "font-semibold text-emerald-700" : "text-slate-300"}>{d.high}</span>
+                                        <span className={d.high > 0 ? "font-semibold text-emerald-300" : "text-[#3e3e3e]"}>{d.high}</span>
                                       </td>
                                       <td className="px-4 py-3 text-right">
-                                        <span className={d.low > 0 ? "font-semibold text-amber-700" : "text-slate-300"}>{d.low}</span>
+                                        <span className={d.low > 0 ? "font-semibold text-ad-warn" : "text-[#3e3e3e]"}>{d.low}</span>
                                       </td>
                                       <td className="px-4 py-3 text-right">
-                                        <span className={d.escalations > 0 ? "font-semibold text-red-700" : "text-slate-300"}>{d.escalations}</span>
+                                        <span className={d.escalations > 0 ? "font-semibold text-ad-danger" : "text-[#3e3e3e]"}>{d.escalations}</span>
                                       </td>
                                     </tr>
                                   ))}
                                   {monthlyDetail.days.filter((d) => d.questions > 0 || d.escalations > 0).length === 0 && (
                                     <tr>
-                                      <td colSpan={6} className="px-4 py-10 text-center text-slate-400">No activity recorded this month.</td>
+                                      <td colSpan={6} className="px-4 py-10 text-center text-ad-dim">No activity recorded this month.</td>
                                     </tr>
                                   )}
                                 </tbody>
                                 <tfoot>
-                                  <tr className="border-t-2 border-[#e5dede] bg-slate-50">
-                                    <td className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Month Total</td>
-                                    <td className="px-4 py-3 text-right font-bold text-slate-800">{monthlyDetail.totals.conversations}</td>
-                                    <td className="px-4 py-3 text-right font-bold text-slate-800">{monthlyDetail.totals.questions}</td>
-                                    <td className="px-4 py-3 text-right font-bold text-emerald-700">{monthlyDetail.totals.high}</td>
-                                    <td className="px-4 py-3 text-right font-bold text-amber-700">{monthlyDetail.totals.low}</td>
-                                    <td className="px-4 py-3 text-right font-bold text-red-700">{monthlyDetail.totals.escalations}</td>
+                                  <tr className="border-t-2 border-white/7 bg-ad-raised">
+                                    <td className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-[#787878]">Month Total</td>
+                                    <td className="px-4 py-3 text-right font-bold text-[#e0e0e0]">{monthlyDetail.totals.conversations}</td>
+                                    <td className="px-4 py-3 text-right font-bold text-[#e0e0e0]">{monthlyDetail.totals.questions}</td>
+                                    <td className="px-4 py-3 text-right font-bold text-emerald-300">{monthlyDetail.totals.high}</td>
+                                    <td className="px-4 py-3 text-right font-bold text-ad-warn">{monthlyDetail.totals.low}</td>
+                                    <td className="px-4 py-3 text-right font-bold text-ad-danger">{monthlyDetail.totals.escalations}</td>
                                   </tr>
                                 </tfoot>
                               </table>
                             </div>
                           </>
                         ) : (
-                          <p className="py-10 text-center text-sm text-slate-400">Select a month above to view daily data.</p>
+                          <p className="py-10 text-center text-sm text-ad-dim">Select a month above to view daily data.</p>
                         )}
                       </>
                     )
                   ) : (
-                    <p className="py-10 text-center text-sm text-slate-400">No analytics data available.</p>
+                    <p className="py-10 text-center text-sm text-ad-dim">No analytics data available.</p>
                   )}
                 </section>
 
                 {/* Chatbot Response Feedback */}
-                <section className="rounded-lg border border-[#d8e0e8] bg-white px-6 py-6 shadow-sm">
-                  <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Chatbot Response Feedback</p>
-                  <p className="mb-5 text-xs text-slate-500">Student ratings on chatbot responses — all time</p>
+                <section className="rounded-lg border border-white/7 bg-ad-surface px-6 py-6 shadow-sm">
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-ad-dim">Chatbot Response Feedback</p>
+                  <p className="mb-5 text-xs text-[#787878]">Student ratings on chatbot responses — all time</p>
 
                   {feedbackStats ? (
                     <>
                       <div className="mb-6 grid gap-4 sm:grid-cols-3">
                         {[
-                          { label: "Helpful", value: feedbackStats.totals.helpful, color: "text-emerald-700" },
+                          { label: "Helpful", value: feedbackStats.totals.helpful, color: "text-emerald-300" },
                           { label: "Not Helpful", value: feedbackStats.totals.notHelpful, color: "text-red-600" },
                           { label: "Total Rated", value: feedbackStats.totals.total, color: "text-[#9E1B34]" },
                         ].map((item) => (
-                          <div key={item.label} className="rounded-lg border border-[#e5dede] bg-slate-50 px-6 py-5">
-                            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+                          <div key={item.label} className="rounded-lg border border-white/7 bg-ad-raised px-6 py-5">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">{item.label}</p>
                             <p className={`mt-1 text-2xl font-bold ${item.color}`}>{item.value}</p>
                             {feedbackStats.totals.total > 0 && (
-                              <p className="mt-0.5 text-xs text-slate-400">
+                              <p className="mt-0.5 text-xs text-ad-dim">
                                 {Math.round((item.value / feedbackStats.totals.total) * 100)}%
                               </p>
                             )}
@@ -1438,7 +1835,7 @@ export default function AdminConsolePage() {
                       </div>
 
                       {feedbackStats.totals.total > 0 && (
-                        <div className="mb-5 h-3 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div className="mb-5 h-3 w-full overflow-hidden rounded-full bg-white/8">
                           <div
                             className="h-full rounded-full bg-emerald-500 transition-all"
                             style={{ width: `${Math.round((feedbackStats.totals.helpful / feedbackStats.totals.total) * 100)}%` }}
@@ -1448,17 +1845,30 @@ export default function AdminConsolePage() {
 
                       {feedbackStats.recent.length > 0 && (
                         <>
-                          <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                          <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
                             Recent Not-Helpful Responses
                           </p>
                           <div className="space-y-4">
                             {feedbackStats.recent.map((item) => (
-                              <div key={item.id} className="rounded-lg border border-red-100 bg-red-50 px-6 py-5">
-                                <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-red-400">
-                                  {new Date(item.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                                </p>
-                                <p className="text-xs font-semibold text-slate-600">Q: {item.question}</p>
-                                <p className="mt-1 line-clamp-2 text-xs text-slate-500">A: {item.answer}</p>
+                              <div key={item.id} className="rounded-lg border border-ad-danger/20 bg-ad-danger/10 px-6 py-5">
+                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                  <p className="text-[10px] font-bold uppercase tracking-wider text-red-400">
+                                    {new Date(item.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                  </p>
+                                  {item.reason && (
+                                    <span className="rounded-full border border-red-200/60 bg-red-100/50 px-2 py-0.5 text-[10px] font-semibold capitalize text-red-500">
+                                      {item.reason.replace(/-/g, " ")}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs font-semibold text-ad-muted">Q: {item.question}</p>
+                                <p className="mt-1 line-clamp-2 text-xs text-[#787878]">A: {item.answer}</p>
+                                {item.comment && (
+                                  <div className="mt-2 rounded-lg border border-red-200/40 bg-white/40 px-3 py-2">
+                                    <p className="text-[10px] font-bold uppercase tracking-wide text-red-400">User comment</p>
+                                    <p className="mt-0.5 text-xs text-ad-muted">{item.comment}</p>
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -1466,48 +1876,48 @@ export default function AdminConsolePage() {
                       )}
 
                       {feedbackStats.totals.total === 0 && (
-                        <p className="py-6 text-center text-sm text-slate-400">No feedback submitted yet.</p>
+                        <p className="py-6 text-center text-sm text-ad-dim">No feedback submitted yet.</p>
                       )}
                     </>
                   ) : (
-                    <p className="py-6 text-center text-sm text-slate-400">Loading feedback data...</p>
+                    <p className="py-6 text-center text-sm text-ad-dim">Loading feedback data...</p>
                   )}
                 </section>
               </div>
             ) : isHistoryView ? (
               <div className="space-y-5">
                   {chatHistory.length === 0 ? (
-                    <div className="rounded-lg border border-[#e5dede] bg-white py-16 text-center text-sm text-slate-400">
+                    <div className="rounded-lg border border-white/7 bg-ad-surface py-16 text-center text-sm text-ad-dim">
                       No chat history yet.
                     </div>
                   ) : (
-                  <div className="grid min-h-180 overflow-hidden rounded-lg border border-[#d8e0e8] bg-white shadow-sm lg:grid-cols-[420px_minmax(0,1fr)] 2xl:grid-cols-[480px_minmax(0,1fr)]">
-                  <aside className="border-b border-[#d8e0e8] bg-slate-50 lg:border-b-0 lg:border-r">
-                    <div className="border-b border-[#d8e0e8] px-6 py-5">
+                  <div className="grid min-h-180 overflow-hidden rounded-lg border border-white/7 bg-ad-surface shadow-sm lg:grid-cols-[420px_minmax(0,1fr)] 2xl:grid-cols-[480px_minmax(0,1fr)]">
+                  <aside className="border-b border-white/7 bg-ad-raised lg:border-b-0 lg:border-r">
+                    <div className="border-b border-white/7 px-6 py-5">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-ad-dim">
                             Inbox Chats
                           </p>
-                          <h3 className="mt-1 text-lg font-bold text-slate-950">{filteredHistoryConversations.length} conversations</h3>
+                          <h3 className="mt-1 text-lg font-bold text-ad-text">{filteredHistoryConversations.length} conversations</h3>
                         </div>
-                        <span className="rounded-lg border border-[#dccfd0] bg-white px-2.5 py-1 text-xs font-bold text-slate-500">
-                          {visibleChatHistory.length} questions
+                        <span className="rounded-lg border border-white/10 bg-ad-raised px-2.5 py-1 text-xs font-bold text-ad-muted">
+                          {filteredQuestionsCount} questions
                         </span>
                       </div>
                       <div className="relative mt-4">
                         <div className="flex items-center gap-3">
                           <label className="min-w-0 flex-1">
                             <span className="sr-only">Search conversations</span>
-                            <div className="flex items-center gap-3 rounded-lg border border-[#cbd5e1] bg-white px-3 py-3 shadow-sm">
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5 text-slate-400">
+                            <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-ad-raised px-3 py-3">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5 text-ad-dim">
                                 <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 3.473 9.765l2.631 2.631a.75.75 0 1 0 1.061-1.06l-2.631-2.632A5.5 5.5 0 0 0 9 3.5ZM5 9a4 4 0 1 1 8 0A4 4 0 0 1 5 9Z" clipRule="evenodd" />
                               </svg>
                               <input
                                 value={historySearch}
                                 onChange={(event) => setHistorySearch(event.target.value)}
                                 placeholder="Search conversations"
-                                className="min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                                className="min-w-0 flex-1 border-0 bg-transparent text-sm text-[#c4c4c4] outline-none placeholder:text-ad-dim"
                               />
                             </div>
                           </label>
@@ -1515,10 +1925,10 @@ export default function AdminConsolePage() {
                             type="button"
                             onClick={() => setHistoryFiltersOpen((open) => !open)}
                             aria-expanded={historyFiltersOpen}
-                            className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border text-slate-600 shadow-sm transition ${
+                            className={`relative flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border text-ad-muted shadow-sm transition ${
                               historyFiltersOpen
                                 ? "border-[#9E1B34] bg-[#9E1B34] text-white"
-                                : "border-[#cbd5e1] bg-white hover:bg-slate-50"
+                                : "border-white/10 bg-ad-raised hover:bg-white/8"
                             }`}
                           >
                             <span className="sr-only">Open chat history filters</span>
@@ -1526,7 +1936,7 @@ export default function AdminConsolePage() {
                               <path fillRule="evenodd" d="M2.628 1.601C5.028 1.206 7.49 1 10 1s4.973.206 7.372.601a.75.75 0 0 1 .628.74v2.288a2.25 2.25 0 0 1-.659 1.591l-4.682 4.683a2.25 2.25 0 0 0-.659 1.59v3.037a2.25 2.25 0 0 1-1.244 2.013l-2 1A.75.75 0 0 1 7.5 17.87v-5.378a2.25 2.25 0 0 0-.659-1.591L2.159 6.22A2.25 2.25 0 0 1 1.5 4.629V2.34a.75.75 0 0 1 .628-.74Z" clipRule="evenodd" />
                             </svg>
                             {activeHistoryFilterCount > 0 && (
-                              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#BA0C2F] px-1 text-[10px] font-bold text-white">
+                              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-ad-accent2 px-1 text-[10px] font-bold text-white">
                                 {activeHistoryFilterCount}
                               </span>
                             )}
@@ -1534,9 +1944,9 @@ export default function AdminConsolePage() {
                         </div>
 
                         {historyFiltersOpen && (
-                          <div className="absolute right-0 top-14 z-20 w-full rounded-lg border border-[#d8e0e8] bg-white p-4 shadow-xl sm:w-90">
+                          <div className="absolute right-0 top-14 z-20 w-full rounded-lg border border-white/7 bg-ad-surface p-4 shadow-xl sm:w-90">
                             <div className="mb-4 flex items-center justify-between gap-3">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Filters</p>
+                              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">Filters</p>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1545,7 +1955,7 @@ export default function AdminConsolePage() {
                                   setHistoryGroupBy("day")
                                   setHistorySearch("")
                                 }}
-                                className="rounded-md border border-[#e5dede] bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100"
+                                className="rounded-md border border-white/7 bg-ad-raised px-3 py-1.5 text-xs font-semibold text-[#787878] transition hover:bg-white/8"
                               >
                                 Reset
                               </button>
@@ -1553,7 +1963,7 @@ export default function AdminConsolePage() {
 
                             <div className="space-y-4">
                               <div>
-                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Confidence</p>
+                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Confidence</p>
                                 <div className="flex flex-wrap gap-2">
                                   {([
                                     { id: "all", label: "All", count: historyCounts.all },
@@ -1567,11 +1977,11 @@ export default function AdminConsolePage() {
                                       className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                                         confidenceFilter === option.id
                                           ? "border-[#9E1B34] bg-[#9E1B34] text-white"
-                                          : "border-[#e5dede] bg-white text-slate-600 hover:bg-slate-50"
+                                          : "border-white/7 bg-ad-surface text-ad-muted hover:bg-ad-raised"
                                       }`}
                                     >
                                       {option.label}
-                                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${confidenceFilter === option.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+                                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${confidenceFilter === option.id ? "bg-white/20 text-white" : "bg-white/8 text-[#787878]"}`}>
                                         {option.count}
                                       </span>
                                     </button>
@@ -1580,7 +1990,7 @@ export default function AdminConsolePage() {
                               </div>
 
                               <div>
-                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Type</p>
+                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Type</p>
                                 <div className="flex flex-wrap gap-2">
                                   {([
                                     { id: "all" as TypeFilter, label: "All", count: historyTypeCounts.all },
@@ -1594,11 +2004,11 @@ export default function AdminConsolePage() {
                                       className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                                         typeFilter === option.id
                                           ? "border-[#9E1B34] bg-[#9E1B34] text-white"
-                                          : "border-[#e5dede] bg-white text-slate-600 hover:bg-slate-50"
+                                          : "border-white/7 bg-ad-surface text-ad-muted hover:bg-ad-raised"
                                       }`}
                                     >
                                       {option.label}
-                                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${typeFilter === option.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+                                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${typeFilter === option.id ? "bg-white/20 text-white" : "bg-white/8 text-[#787878]"}`}>
                                         {option.count}
                                       </span>
                                     </button>
@@ -1607,8 +2017,8 @@ export default function AdminConsolePage() {
                               </div>
 
                               <div>
-                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Group</p>
-                                <div className="inline-flex items-center gap-1 rounded-lg border border-[#e5dede] bg-slate-50 p-0.5">
+                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Group</p>
+                                <div className="inline-flex items-center gap-1 rounded-lg border border-white/7 bg-ad-raised p-0.5">
                                   {(["day", "month"] as const).map((option) => (
                                     <button
                                       key={option}
@@ -1617,7 +2027,7 @@ export default function AdminConsolePage() {
                                       className={`rounded-md px-3 py-1.5 text-xs font-semibold capitalize transition ${
                                         historyGroupBy === option
                                           ? "bg-slate-900 text-white shadow-sm"
-                                          : "text-slate-500 hover:text-slate-800"
+                                          : "text-[#787878] hover:text-[#e0e0e0]"
                                       }`}
                                     >
                                       {option}
@@ -1632,13 +2042,13 @@ export default function AdminConsolePage() {
                     </div>
                     <div className="max-h-140 overflow-y-auto px-5 py-5 lg:max-h-157.5">
                       {filteredHistoryConversations.length === 0 && (
-                        <div className="rounded-lg border border-dashed border-[#d8e0e8] bg-white px-5 py-8 text-center text-sm text-slate-400">
+                        <div className="rounded-lg border border-dashed border-white/7 bg-ad-surface px-5 py-8 text-center text-sm text-ad-dim">
                           No conversations match these filters.
                         </div>
                       )}
                       {groupedHistoryConversations.map((group) => (
                         <div key={group.label} className="mb-5">
-                          <div className="mb-3 inline-flex items-center gap-2 rounded-lg bg-slate-200 px-3 py-2 text-xs font-bold text-slate-700">
+                          <div className="mb-3 inline-flex items-center gap-2 rounded-lg bg-ad-raised px-3 py-2 text-xs font-bold text-ad-muted">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
                               <path fillRule="evenodd" d="M5.75 2a.75.75 0 0 1 .75.75V4h7V2.75a.75.75 0 0 1 1.5 0V4h.25A2.75 2.75 0 0 1 18 6.75v8.5A2.75 2.75 0 0 1 15.25 18H4.75A2.75 2.75 0 0 1 2 15.25v-8.5A2.75 2.75 0 0 1 4.75 4H5V2.75A.75.75 0 0 1 5.75 2Zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75Z" clipRule="evenodd" />
                             </svg>
@@ -1653,44 +2063,44 @@ export default function AdminConsolePage() {
                                   type="button"
                                   onClick={() => setSelectedHistoryConversationId(conversation.conversationId)}
                                   className={`block w-full rounded-lg px-5 py-5 text-left transition ${
-                                    selected ? "bg-white shadow-sm ring-2 ring-[#9E1B34]/30" : "hover:bg-white"
+                                    selected ? "bg-ad-surface shadow-sm ring-2 ring-[#9E1B34]/30" : "hover:bg-white/5"
                                   } ${conversation.hasLiveSupport ? "border-l-[3px] border-l-blue-600 pl-4" : ""}`}
                                 >
                                   <div className="flex items-start justify-between gap-4">
                                     <div className="min-w-0 flex-1">
-                                      <p className="text-[11px] font-bold text-slate-500">{formatListTimestamp(conversation.latestAt)}</p>
+                                      <p className="text-[11px] font-bold text-[#787878]">{formatListTimestamp(conversation.latestAt)}</p>
                                       <div className="mt-1 flex items-center gap-2">
-                                        <p className="line-clamp-1 text-sm font-semibold text-slate-800">
+                                        <p className="line-clamp-1 text-sm font-semibold text-[#e0e0e0]">
                                           {conversation.title}
                                         </p>
                                         {conversation.hasLiveSupport && (
-                                          <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-700">
+                                          <span className="shrink-0 rounded-full border border-blue-700/40 bg-blue-900/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-blue-300">
                                             ESCALATED
                                           </span>
                                         )}
                                       </div>
-                                      <p className="mt-1 line-clamp-1 text-xs leading-6 text-slate-500">
+                                      <p className="mt-1 line-clamp-1 text-xs leading-6 text-[#787878]">
                                         {conversation.preview}
                                       </p>
                                       {conversation.hasLiveSupport && (
                                         <div className="mt-2 flex items-center gap-2">
-                                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-blue-500">
+                                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-blue-400">
                                             <path fillRule="evenodd" d="M15 8A7 7 0 1 1 1 8a7 7 0 0 1 14 0Zm-6-3.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM7.25 6.5a.75.75 0 0 0 0 1.5h.25V10a.75.75 0 0 0 1.5 0V7.25A.75.75 0 0 0 8.25 6.5h-1Z" clipRule="evenodd" />
                                           </svg>
-                                          <span className="text-[10px] font-semibold text-blue-600">
+                                          <span className="text-[10px] font-semibold text-blue-300">
                                             Advisor: {conversation.agentNames.join(", ")}
                                           </span>
                                         </div>
                                       )}
                                     </div>
                                     <div className="flex shrink-0 flex-col items-end gap-2">
-                                      <span className="rounded-full bg-slate-200 px-2 py-1 text-[10px] font-bold text-slate-600">
+                                      <span className="rounded-full bg-white/8 px-2 py-1 text-[10px] font-bold text-ad-muted">
                                         {conversation.total} Q
                                       </span>
-                                      <span className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                                      <span className="rounded-full bg-emerald-900/20 px-2 py-1 text-[10px] font-bold text-emerald-300">
                                         {conversation.highCount} high
                                       </span>
-                                      <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-700">
+                                      <span className="rounded-full bg-ad-warn/15 px-2 py-1 text-[10px] font-bold text-ad-warn">
                                         {conversation.lowCount} low
                                       </span>
                                       {selected && (
@@ -1709,34 +2119,34 @@ export default function AdminConsolePage() {
                     </div>
                   </aside>
 
-                  <section className="min-h-180 bg-white">
+                  <section className="min-h-180 bg-ad-surface">
                     {selectedHistoryConversation ? (
                       <div className="flex h-full flex-col">
-                        <div className="border-b border-[#d8e0e8] px-6 py-6 md:px-10 md:py-8">
+                        <div className="border-b border-white/7 px-6 py-6 md:px-10 md:py-8">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#BA0C2F]/70">
+                              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-ad-accent2/70">
                                 Selected Chat
                               </p>
-                              <h3 className="mt-1 line-clamp-2 text-xl font-bold text-slate-950">
+                              <h3 className="mt-1 line-clamp-2 text-xl font-bold text-ad-text">
                                 {selectedHistoryConversation.title}
                               </h3>
-                              <p className="mt-1 text-sm text-slate-500">
+                              <p className="mt-1 text-sm text-[#787878]">
                                 Last message {formatDate(selectedHistoryConversation.latestAt)}
                               </p>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                              <span className="rounded-full border border-[#e5dede] bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600">
+                              <span className="rounded-full border border-white/7 bg-ad-raised px-3 py-1 text-xs font-bold text-ad-muted">
                                 {selectedHistoryConversation.total} questions
                               </span>
-                              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">
+                              <span className="rounded-full border border-ad-warn/30 bg-ad-warn/15 px-3 py-1 text-xs font-bold text-ad-warn">
                                 {selectedHistoryConversation.lowCount} low
                               </span>
-                              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-800">
+                              <span className="rounded-full border border-emerald-700/40 bg-emerald-900/20 px-3 py-1 text-xs font-bold text-emerald-300">
                                 {selectedHistoryConversation.highCount} high
                               </span>
                               {selectedHistoryConversation.hasLiveSupport && (
-                                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">
+                                <span className="rounded-full border border-blue-700/40 bg-blue-900/20 px-3 py-1 text-xs font-bold text-blue-300">
                                   Advisor: {selectedHistoryConversation.agentNames.join(", ")}
                                 </span>
                               )}
@@ -1757,39 +2167,39 @@ export default function AdminConsolePage() {
                               </div>
 
                               <div className="flex justify-start">
-                                <div className="max-w-[86%] rounded-lg border border-[#e5dede] bg-slate-50 px-6 py-5 shadow-sm md:max-w-[76%]">
+                                <div className="max-w-[86%] rounded-lg border border-white/7 bg-ad-raised px-6 py-5 shadow-sm md:max-w-[76%]">
                                   <div className="mb-2 flex flex-wrap items-center gap-2">
-                                    <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
+                                    <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#787878]">
                                       Chatbot - {entry.answerAt ? formatDate(entry.answerAt) : "No response saved"}
                                     </span>
                                     {entry.confidence !== null ? (
                                       <span
                                         className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                                           entry.confidence === "high"
-                                            ? "bg-emerald-100 text-emerald-800"
-                                            : "bg-amber-100 text-amber-800"
+                                            ? "bg-emerald-900/30 text-emerald-300"
+                                            : "bg-ad-warn/20 text-ad-warn"
                                         }`}
                                       >
                                         {entry.confidence === "high" ? "High confidence" : "Low confidence"}
                                       </span>
                                     ) : (
-                                      <span className="rounded-full px-2 py-0.5 text-[10px] font-bold bg-slate-100 text-slate-500">
+                                      <span className="rounded-full px-2 py-0.5 text-[10px] font-bold bg-white/8 text-[#787878]">
                                         Greeting
                                       </span>
                                     )}
                                     {entry.confidenceScore !== null && (
-                                      <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-slate-500">
+                                      <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-ad-muted">
                                         {entry.confidenceScore}%
                                       </span>
                                     )}
                                   </div>
-                                  <p className="whitespace-pre-wrap text-sm leading-7 text-slate-800">
+                                  <p className="whitespace-pre-wrap text-sm leading-7 text-[#e0e0e0]">
                                     {entry.answer || "No chatbot response was saved for this question."}
                                   </p>
                                   {entry.sources.length > 0 && (
                                     <div className="mt-3 flex flex-wrap gap-2">
                                       {entry.sources.map((source) => (
-                                        <span key={source} className="rounded-full border border-[#e5dede] bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+                                        <span key={source} className="rounded-full border border-white/7 bg-ad-surface px-2.5 py-1 text-[11px] font-semibold text-[#787878]">
                                           {source}
                                         </span>
                                       ))}
@@ -1803,19 +2213,19 @@ export default function AdminConsolePage() {
                           {(historyAgentReplies[selectedHistoryConversation.conversationId] ?? []).length > 0 && (
                             <div className="mt-2 space-y-4">
                               <div className="flex items-center gap-3">
-                                <div className="h-px flex-1 bg-slate-200" />
-                                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-600">
+                                <div className="h-px flex-1 bg-white/10" />
+                                <span className="rounded-full border border-blue-700/40 bg-blue-900/20 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-300">
                                   Live Support Session
                                 </span>
-                                <div className="h-px flex-1 bg-slate-200" />
+                                <div className="h-px flex-1 bg-white/10" />
                               </div>
                               {historyAgentReplies[selectedHistoryConversation.conversationId].map((reply) => (
                                 <div key={reply.id} className="flex justify-start">
-                                  <div className="max-w-[86%] rounded-lg border border-blue-200 bg-blue-50 px-6 py-5 shadow-sm md:max-w-[76%]">
-                                    <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-500">
+                                  <div className="max-w-[86%] rounded-lg border border-blue-700/40 bg-blue-900/20 px-6 py-5 shadow-sm md:max-w-[76%]">
+                                    <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-400">
                                       {reply.agentName} &mdash; {formatDate(reply.createdAt)}
                                     </div>
-                                    <p className="whitespace-pre-wrap text-sm leading-7 text-slate-800">{reply.content}</p>
+                                    <p className="whitespace-pre-wrap text-sm leading-7 text-[#e0e0e0]">{reply.content}</p>
                                   </div>
                                 </div>
                               ))}
@@ -1824,9 +2234,9 @@ export default function AdminConsolePage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex h-full min-h-160 items-center justify-center text-center text-slate-400">
+                      <div className="flex h-full min-h-160 items-center justify-center text-center text-ad-dim">
                         <div>
-                          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full border border-[#e5dede] bg-slate-50">
+                          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full border border-white/7 bg-ad-raised">
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-7 w-7">
                               <path fillRule="evenodd" d="M10 3c-4.418 0-8 2.91-8 6.5 0 1.508.635 2.89 1.697 3.993-.102.838-.367 1.522-.667 2.04a.75.75 0 0 0 .889 1.09 8.66 8.66 0 0 0 2.826-1.563A9.43 9.43 0 0 0 10 16c4.418 0 8-2.91 8-6.5S14.418 3 10 3ZM6.75 9.5a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H6.75Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H10Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5h-.008Z" clipRule="evenodd" />
                             </svg>
@@ -1839,23 +2249,88 @@ export default function AdminConsolePage() {
                 </div>
                   )}
               </div>
+            ) : isKnowledgeGapsView ? (
+              <div className="space-y-4">
+                {knowledgeGapsLoading ? (
+                  <div className="rounded-lg border border-white/7 bg-ad-surface py-16 text-center text-sm text-ad-dim">
+                    Loading knowledge gaps…
+                  </div>
+                ) : knowledgeGaps.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center rounded-lg border border-white/7 bg-ad-surface py-20 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-900/20">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-7 w-7 text-emerald-400">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <p className="mt-4 text-base font-semibold text-[#c4c4c4]">No knowledge gaps found</p>
+                    <p className="mt-1 text-sm text-ad-dim">All answered questions had high confidence and a cited source.</p>
+                  </div>
+                ) : (
+                  knowledgeGaps.map((gap, index) => (
+                    <article
+                      key={index}
+                      className="rounded-lg border border-white/7 bg-ad-surface p-6 shadow-sm"
+                    >
+                      <div className="flex flex-wrap items-start gap-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {gap.confidence === "low" ? (
+                              <span className="rounded-full bg-ad-warn/15 px-2 py-0.5 text-[10px] font-bold text-ad-warn">
+                                Low confidence
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] font-bold text-[#787878]">
+                                No source
+                              </span>
+                            )}
+                            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-ad-dim">
+                              Asked {gap.count}×
+                            </span>
+                            <span className="text-[10px] text-ad-dim">
+                              {formatDate(gap.lastAskedAt)}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm font-semibold leading-6 text-[#e0e0e0]">{gap.question}</p>
+                          <p className="mt-1 text-xs text-[#787878]">{gap.reason}</p>
+                          {gap.sources.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {gap.sources.map((src) => (
+                                <span key={src} className="rounded-full border border-white/7 bg-ad-surface px-2.5 py-1 text-[11px] font-semibold text-[#787878]">
+                                  {src}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setFilter("history" as Filter)}
+                          className="shrink-0 rounded-lg border border-white/7 bg-ad-surface px-3 py-2 text-xs font-semibold text-ad-muted transition hover:bg-white/6 hover:text-white"
+                        >
+                          View in History
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
             ) : visibleRequests.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-lg border border-[#e5dede] bg-white py-20 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
+              <div className="flex flex-col items-center justify-center rounded-lg border border-white/7 bg-ad-surface py-20 text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/8">
                   {isTrashView ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-7 w-7 text-slate-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-7 w-7 text-ad-dim">
                       <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4ZM8.58 7.72a.75.75 0 0 0-1.5.06l.3 7.5a.75.75 0 1 0 1.5-.06l-.3-7.5Zm4.34.06a.75.75 0 1 0-1.5-.06l-.3 7.5a.75.75 0 1 0 1.5.06l.3-7.5Z" clipRule="evenodd" />
                     </svg>
                   ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-7 w-7 text-slate-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-7 w-7 text-ad-dim">
                       <path fillRule="evenodd" d="M1 11.27c0-.246.033-.492.099-.73l1.523-5.521A2.75 2.75 0 0 1 5.273 3h9.454a2.75 2.75 0 0 1 2.651 2.019l1.523 5.52c.066.239.099.485.099.732V15a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-3.73Zm3.068-5.852A1.25 1.25 0 0 1 5.273 4.5h9.454a1.25 1.25 0 0 1 1.205.918l1.523 5.52c.006.02.01.041.015.062H14a1 1 0 0 0-.86.49l-.606 1.02a1 1 0 0 1-.86.49H8.326a1 1 0 0 1-.86-.49l-.606-1.02A1 1 0 0 0 6 11H2.53l.015-.062 1.523-5.52Z" clipRule="evenodd" />
                     </svg>
                   )}
                 </div>
-                <p className="mt-4 text-base font-semibold text-slate-700">
+                <p className="mt-4 text-base font-semibold text-[#c4c4c4]">
                   {isTrashView ? "Trash is empty" : "All caught up"}
                 </p>
-                <p className="mt-1 text-sm text-slate-400">
+                <p className="mt-1 text-sm text-ad-dim">
                   {isTrashView
                     ? "No deleted support requests to show."
                     : filter === "all"
@@ -1895,8 +2370,8 @@ export default function AdminConsolePage() {
                   return (
                     <article
                       key={request.id}
-                      className={`rounded-lg border bg-white p-6 shadow-sm transition-all ${
-                        isLive && expanded ? "border-[#9E1B34]/30 ring-1 ring-[#9E1B34]/15" : "border-[#e5dede]"
+                      className={`rounded-lg border bg-ad-surface p-6 shadow-sm transition-all ${
+                        isLive && expanded ? "border-[#9E1B34]/30 ring-1 ring-[#9E1B34]/15" : "border-white/7"
                       }`}
                     >
                       <div className="flex flex-wrap items-start gap-3">
@@ -1906,17 +2381,17 @@ export default function AdminConsolePage() {
                           {isTrashView ? `Deleted ${label}` : label}
                         </span>
                         {isLive && (
-                          <span className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
+                          <span className="flex items-center gap-2 rounded-full border border-emerald-700/40 bg-emerald-900/20 px-3 py-1.5 text-xs font-bold text-emerald-300">
                             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
                             LIVE
                           </span>
                         )}
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                          <p className="text-xs font-semibold uppercase tracking-wider text-ad-dim">
                             Requested {formatDate(request.createdAt)}
                           </p>
                           {request.assignedAgentName && (
-                            <p className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-blue-600">
+                            <p className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-blue-300">
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
                                 <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.254 1.139.872 1.139h9.47Z" />
                               </svg>
@@ -1928,30 +2403,30 @@ export default function AdminConsolePage() {
                               Deleted {formatDate(request.deletedAt ?? request.updatedAt)}
                             </p>
                           )}
-                          <h2 className="mt-1 line-clamp-2 text-base font-semibold text-slate-900">
+                          <h2 className="mt-1 line-clamp-2 text-base font-semibold text-ad-text">
                             {request.latestQuestion}
                           </h2>
                           {!expanded && (
-                            <p className="mt-3 rounded-lg border border-[#eadfe0] bg-[#fdf8f8] px-4 py-3 text-sm leading-6 text-slate-600">
-                              <span className="font-semibold text-slate-800">Escalation reason:</span>{" "}
+                            <p className="mt-3 rounded-lg border border-white/7 bg-ad-raised px-4 py-3 text-sm leading-6 text-ad-muted">
+                              <span className="font-semibold text-[#e0e0e0]">Escalation reason:</span>{" "}
                               {request.chatbotNote}
                             </p>
                           )}
 
                           {/* Live draft preview on collapsed card */}
                           {isLive && !expanded && typingStatuses[request.id] && (
-                            <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                            <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-700/40 bg-emerald-900/20 px-4 py-3">
                               <span className="flex shrink-0 items-center gap-1 pt-0.5">
                                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.3s]" />
                                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.15s]" />
                                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500" />
                               </span>
                               {studentDrafts[request.id] ? (
-                                <p className="min-w-0 text-sm italic text-emerald-800">
+                                <p className="min-w-0 text-sm italic text-emerald-300">
                                   &ldquo;{studentDrafts[request.id]}&rdquo;
                                 </p>
                               ) : (
-                                <p className="text-sm text-emerald-700">Student is typing…</p>
+                                <p className="text-sm text-emerald-300">Student is typing…</p>
                               )}
                             </div>
                           )}
@@ -1959,38 +2434,38 @@ export default function AdminConsolePage() {
                         <button
                           type="button"
                           onClick={() => toggleExpanded(request.id)}
-                          className="rounded-lg border border-[#dccfd0] px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                          className="rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-ad-muted transition hover:bg-ad-raised"
                         >
                           {expanded ? "Collapse" : "Expand"}
                         </button>
                       </div>
 
                       {expanded && (
-                        <div className="mt-6 border-t border-[#f0e8e8] pt-6">
+                        <div className="mt-6 border-t border-white/7 pt-6">
                           <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
                             {/* ── Left: transcript ─────────────────────── */}
                             <div className="flex min-w-0 flex-col">
                               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                                 <div>
-                                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#787878]">
                                     Live Chat
                                   </p>
-                                  <p className="mt-1 text-xs text-slate-400">
+                                  <p className="mt-1 text-xs text-ad-dim">
                                     {preHistory.length > 0 ? `${preHistory.length} messages before escalation, ` : ""}
                                     {liveMessages.length} live message{liveMessages.length !== 1 ? "s" : ""}
                                   </p>
                                 </div>
-                                <span className="rounded-full border border-[#e5dede] bg-white px-4 py-2 text-xs font-semibold text-slate-500">
+                                <span className="rounded-full border border-white/7 bg-ad-surface px-4 py-2 text-xs font-semibold text-[#787878]">
                                   {timeline.length} total
                                 </span>
                               </div>
 
                               <div
                                 ref={(el) => { transcriptContainerRefs.current[request.id] = el }}
-                                className="max-h-155 min-h-40 overflow-y-auto rounded-lg border border-[#e5dede] bg-slate-50 p-4"
+                                className="max-h-155 min-h-40 overflow-y-auto rounded-lg border border-white/7 bg-ad-raised p-4"
                               >
                             {timeline.length === 0 ? (
-                              <p className="px-3 py-6 text-center text-sm text-slate-400">
+                              <p className="px-3 py-6 text-center text-sm text-ad-dim">
                                 No conversation history was saved for this request.
                               </p>
                             ) : (
@@ -2002,17 +2477,17 @@ export default function AdminConsolePage() {
                                         key={message.id}
                                         className={`rounded-lg border px-4 py-3 opacity-70 ${
                                           message.role === "USER"
-                                            ? "border-[#f3ccd4] bg-[#fff7f7]"
-                                            : "border-slate-200 bg-white"
+                                            ? "border-white/5 bg-ad-accent/10"
+                                            : "border-white/7 bg-ad-surface"
                                         }`}
                                       >
                                         <div className="mb-1 flex items-center justify-between gap-3">
-                                          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                          <span className="text-[10px] font-bold uppercase tracking-widest text-ad-dim">
                                             {message.role === "USER" ? "Student" : "Chatbot"}
                                           </span>
-                                          <span className="text-[10px] text-slate-400">{formatDate(message.createdAt)}</span>
+                                          <span className="text-[10px] text-ad-dim">{formatDate(message.createdAt)}</span>
                                         </div>
-                                        <p className="whitespace-pre-wrap text-sm leading-6 text-slate-600">{message.content}</p>
+                                        <p className="whitespace-pre-wrap text-sm leading-6 text-ad-muted">{message.content}</p>
                                       </div>
                                     ))}
                                     <div className="flex items-center gap-2 py-2">
@@ -2026,7 +2501,7 @@ export default function AdminConsolePage() {
                                 )}
 
                                 {liveMessages.length === 0 ? (
-                                  <p className="py-4 text-center text-sm text-slate-400">
+                                  <p className="py-4 text-center text-sm text-ad-dim">
                                     Waiting for the student to send a message...
                                   </p>
                                 ) : (
@@ -2035,26 +2510,26 @@ export default function AdminConsolePage() {
                                       key={message.id}
                                       className={`rounded-lg border px-4 py-3 ${
                                         message.role === "USER"
-                                          ? "border-[#f3ccd4] bg-[#fff7f7]"
+                                          ? "border-white/5 bg-ad-accent/10"
                                           : message.role === "ADMIN"
-                                            ? "border-blue-200 bg-blue-50"
-                                            : "border-slate-200 bg-white"
+                                            ? "border-blue-700/40 bg-blue-900/20"
+                                            : "border-white/7 bg-ad-surface"
                                       }`}
                                     >
                                       <div className="mb-1 flex items-center justify-between gap-3">
-                                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-[#787878]">
                                           {message.role === "USER" ? "Student" : message.role === "ADMIN" ? "Advisor" : "Chatbot"}
                                         </span>
-                                        <span className="text-[10px] text-slate-400">{formatDate(message.createdAt)}</span>
+                                        <span className="text-[10px] text-ad-dim">{formatDate(message.createdAt)}</span>
                                       </div>
-                                      <p className="whitespace-pre-wrap text-sm leading-6 text-slate-800">{message.content}</p>
+                                      <p className="whitespace-pre-wrap text-sm leading-6 text-[#e0e0e0]">{message.content}</p>
                                     </div>
                                   ))
                                 )}
 
                                 {/* Typing indicator — inline at the bottom of the thread */}
                                 {label === "Pending" && typingStatuses[request.id] && (
-                                  <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+                                  <div className="flex items-start gap-2 rounded-lg border border-emerald-700/40 bg-emerald-900/20 px-4 py-3">
                                     <span className="flex shrink-0 items-center gap-1 pt-1">
                                       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.3s]" />
                                       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-500 [animation-delay:-0.15s]" />
@@ -2063,7 +2538,7 @@ export default function AdminConsolePage() {
                                     <div className="min-w-0">
                                       <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600">Student is typing…</p>
                                       {studentDrafts[request.id] && (
-                                        <p className="mt-0.5 wrap-break-word text-sm italic text-emerald-800">
+                                        <p className="mt-0.5 wrap-break-word text-sm italic text-emerald-300">
                                           &ldquo;{studentDrafts[request.id]}&rdquo;
                                         </p>
                                       )}
@@ -2080,19 +2555,19 @@ export default function AdminConsolePage() {
                             {!isTrashView && (
                               <div
                                 ref={(el) => { replyPanelRefs.current[request.id] = el }}
-                                className="flex flex-col gap-4 rounded-lg border border-[#e5dede] bg-[#fdf8f8] p-5 xl:sticky xl:top-24 xl:self-start"
+                                className="flex flex-col gap-4 rounded-lg border border-white/7 bg-ad-raised p-5 xl:sticky xl:top-24 xl:self-start"
                               >
                                 {label === "Pending" && (
                                   <div>
                                     <div className="mb-2.5 flex items-center justify-between gap-2">
-                                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                      <span className="text-[10px] font-bold uppercase tracking-wider text-ad-dim">
                                         Suggested Replies
                                       </span>
                                       <button
                                         type="button"
                                         onClick={() => fetchSuggestedReplies(request.id)}
                                         disabled={suggestingId === request.id}
-                                        className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-[#9E1B34] transition hover:bg-[#fff7f7] disabled:opacity-50"
+                                        className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold text-[#9E1B34] transition hover:bg-white/5 disabled:opacity-50"
                                       >
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-3 w-3">
                                           <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
@@ -2102,7 +2577,7 @@ export default function AdminConsolePage() {
                                     </div>
 
                                     {suggestingId === request.id && !suggestedReplies[request.id] ? (
-                                      <div className="flex items-center gap-2 rounded-lg border border-[#e5dede] bg-slate-50 px-4 py-3 text-xs text-slate-400">
+                                      <div className="flex items-center gap-2 rounded-lg border border-white/7 bg-ad-raised px-4 py-3 text-xs text-ad-dim">
                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 animate-spin">
                                           <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
                                         </svg>
@@ -2115,7 +2590,7 @@ export default function AdminConsolePage() {
                                             key={i}
                                             type="button"
                                             onClick={() => handleReplyChange(request.id, suggestion)}
-                                            className="block w-full rounded-lg border border-[#e5dede] bg-white px-3 py-2.5 text-left text-sm leading-6 text-slate-700 transition hover:border-[#9E1B34]/30 hover:bg-[#fff7f7]"
+                                            className="block w-full rounded-lg border border-white/7 bg-ad-surface px-3 py-2.5 text-left text-sm leading-6 text-[#c4c4c4] transition hover:border-[#9E1B34]/30 hover:bg-white/5"
                                           >
                                             <span className="mr-2 inline-block rounded bg-[#9E1B34]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#9E1B34]">
                                               {i + 1}
@@ -2129,7 +2604,7 @@ export default function AdminConsolePage() {
                                 )}
 
                                 <div>
-                                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500">
+                                  <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-[#787878]">
                                     Reply to user
                                   </label>
                                   <textarea
@@ -2141,7 +2616,7 @@ export default function AdminConsolePage() {
                                     }}
                                     rows={5}
                                     placeholder="Type your reply or click a suggestion above…"
-                                    className="w-full resize-none rounded-lg border border-[#dccfd0] bg-white px-3 py-2.5 text-sm outline-none transition focus:border-[#BA0C2F]/50 focus:ring-2 focus:ring-[#BA0C2F]/10"
+                                    className="w-full resize-none rounded-lg border border-white/10 bg-ad-raised px-3 py-2.5 text-sm text-ad-text outline-none placeholder:text-ad-dim transition focus:border-ad-accent2/50 focus:ring-2 focus:ring-ad-accent2/10"
                                   />
                                 </div>
 
@@ -2151,7 +2626,7 @@ export default function AdminConsolePage() {
                                       type="button"
                                       onClick={() => deleteRequest(request.id, label)}
                                       disabled={deletingId === request.id}
-                                      className="rounded-lg border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                      className="rounded-lg border border-ad-danger/30 bg-ad-danger/10 px-4 py-2.5 text-sm font-semibold text-ad-danger transition hover:bg-ad-danger/20 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                       {deletingId === request.id ? "Deleting..." : "Delete"}
                                     </button>
@@ -2161,7 +2636,7 @@ export default function AdminConsolePage() {
                                       type="button"
                                       onClick={() => markDone(request.id)}
                                       disabled={completingId === request.id}
-                                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                      className="rounded-lg border border-emerald-700/40 bg-emerald-900/20 px-4 py-2.5 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                       {completingId === request.id ? "Marking..." : "Mark as Done"}
                                     </button>
@@ -2175,7 +2650,7 @@ export default function AdminConsolePage() {
                                       !adminName.trim() ||
                                       !replies[request.id]?.trim()
                                     }
-                                    className="rounded-lg bg-[#BA0C2F] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#a80b2a] disabled:cursor-not-allowed disabled:opacity-50"
+                                    className="rounded-lg bg-ad-accent2 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-ad-accent disabled:cursor-not-allowed disabled:opacity-50"
                                   >
                                     {sendingId === request.id ? "Sending..." : "Send Reply"}
                                   </button>
@@ -2188,6 +2663,18 @@ export default function AdminConsolePage() {
                     </article>
                   )
                 })}
+              </div>
+            )}
+
+            {!isHistoryView && !isAnalyticsView && !isTrashView && !isKnowledgeGapsView && !isOverviewView && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-ad-bg/75 backdrop-blur-[2px]">
+                <div className="flex flex-col items-center gap-3 rounded-xl border border-white/7 bg-ad-surface px-10 py-8 shadow-sm">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-8 w-8 text-[#3e3e3e]">
+                    <path fillRule="evenodd" d="M2 5.75A2.75 2.75 0 0 1 4.75 3h10.5A2.75 2.75 0 0 1 18 5.75v8.5A2.75 2.75 0 0 1 15.25 17H4.75A2.75 2.75 0 0 1 2 14.25v-8.5Zm2.75-1.25c-.69 0-1.25.56-1.25 1.25v1h13v-1c0-.69-.56-1.25-1.25-1.25H4.75Zm11.75 3.75h-13v6c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6Z" clipRule="evenodd" />
+                  </svg>
+                  <p className="text-base font-bold text-ad-dim">Live Support</p>
+                  <p className="text-xs text-ad-dim">Coming soon</p>
+                </div>
               </div>
             )}
           </div>

@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+/* ─── Tailwind v4 design-token extension ─────────────────────────────────── */
+@theme {
+  /* Admin dark-UI palette — reference as bg-ad-*, text-ad-*, border-ad-* */
+  --color-ad-bg:        #1c1b1d;   /* page background */
+  --color-ad-surface:   #262528;   /* card / panel surface */
+  --color-ad-raised:    #2e2c31;   /* table headers, inner panels */
+  --color-ad-text:      #ececec;   /* primary text */
+  --color-ad-muted:     #9a9a9a;   /* secondary / label text */
+  --color-ad-dim:       #5a5a5a;   /* very muted / placeholder */
+  --color-ad-accent:    #9E1B32;   /* BYUH crimson accent */
+  --color-ad-accent2:   #BA0C2F;   /* BYUH brighter crimson */
+  --color-ad-up:        #5bbf7a;   /* trend-up / positive */
+  --color-ad-warn:      #e0a23a;   /* warning amber */
+  --color-ad-danger:    #e06a6a;   /* danger / low-conf red */
+}
+
+/* ─── Global CSS variables (for non-Tailwind use) ────────────────────────── */
 :root {
   --background: #f7f7f8;
   --foreground: #111827;
@@ -16,6 +33,15 @@
   --assistant-bg: #ffffff;
   --user-bg: #ba0c2f;
   --muted-text: #6b7280;
+
+  /* Admin dark UI (also available as CSS vars for inline styles if needed) */
+  --ad-bg:      #1c1b1d;
+  --ad-surface: #262528;
+  --ad-raised:  #2e2c31;
+  --ad-text:    #ececec;
+  --ad-muted:   #9a9a9a;
+  --ad-dim:     #5a5a5a;
+  --ad-border:  rgba(255, 255, 255, 0.07);
 }
 
 html,
@@ -51,3 +77,67 @@ a:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* ─── Admin light-theme override ──────────────────────────────────────────── */
+[data-admin-theme="light"] {
+  --color-ad-bg:      #f0f2f5;
+  --color-ad-surface: #ffffff;
+  --color-ad-raised:  #f3f4f6;
+  --color-ad-text:    #0f172a;   /* near-black */
+  --color-ad-muted:   #1e293b;   /* very dark slate — readable on white */
+  --color-ad-dim:     #475569;   /* medium slate — secondary labels */
+}
+
+/* White-opacity borders → black-opacity in light mode */
+[data-admin-theme="light"] [class*="border-white/"] {
+  border-color: rgba(0, 0, 0, 0.09);
+}
+
+/* White-opacity backgrounds → near-transparent dark in light mode */
+[data-admin-theme="light"] [class*="bg-white/"] {
+  --tw-bg-opacity: 1;
+}
+
+/* Sticky header backdrop in light mode */
+[data-admin-theme="light"] .admin-header {
+  background-color: rgba(240, 242, 245, 0.95);
+  border-bottom-color: rgba(0, 0, 0, 0.09);
+}
+
+/* ── Hardcoded hex text colours: remap to dark in light mode ──────────────── */
+/* These were written for dark mode and are near-invisible on white.          */
+[data-admin-theme="light"] .text-\[\#e0e0e0\] { color: #0f172a; }
+[data-admin-theme="light"] .text-\[\#c4c4c4\] { color: #1e293b; }
+[data-admin-theme="light"] .text-\[\#787878\] { color: #374151; }
+[data-admin-theme="light"] .text-\[\#3e3e3e\]  { color: #64748b; }
+
+/* ── Emerald (high-confidence) badges: neon green → forest green in light ── */
+[data-admin-theme="light"] .text-emerald-300  { color: #166534; }
+[data-admin-theme="light"] .bg-emerald-900\/20 { background-color: rgba(21, 128, 61, 0.12); }
+[data-admin-theme="light"] .border-emerald-700\/40 { border-color: rgba(21, 128, 61, 0.35); }
+
+/* ── Blue (escalated / agent) badges in light mode ───────────────────────── */
+[data-admin-theme="light"] .text-blue-300  { color: #1d4ed8; }
+[data-admin-theme="light"] .bg-blue-900\/20 { background-color: rgba(29, 78, 216, 0.1); }
+[data-admin-theme="light"] .border-blue-700\/40 { border-color: rgba(29, 78, 216, 0.3); }
+
+/* ── White-on-dark badge backgrounds → tinted in light mode ─────────────── */
+[data-admin-theme="light"] .bg-white\/8  { background-color: rgba(0, 0, 0, 0.06); }
+[data-admin-theme="light"] .bg-white\/10 { background-color: rgba(0, 0, 0, 0.07); }
+[data-admin-theme="light"] .bg-white\/20 { background-color: rgba(0, 0, 0, 0.10); }
+
+/* ── Hover text variants that are near-white (invisible in light mode) ─────── */
+[data-admin-theme="light"] .hover\:text-\[\#e0e0e0\]:hover { color: #0f172a; }
+
+/* ── Dividers ─────────────────────────────────────────────────────────────── */
+[data-admin-theme="light"] .divide-white\/5 > * + * { border-color: rgba(0, 0, 0, 0.07); }
+
+/* ── Select / input text in analytics dropdowns ───────────────────────────── */
+[data-admin-theme="light"] select { color: #0f172a; background-color: #ffffff; }
+
+/* ── Input and search box text ────────────────────────────────────────────── */
+[data-admin-theme="light"] input  { color: #0f172a; }
+[data-admin-theme="light"] textarea { color: #0f172a; }
+
+/* ── Tooltip overlay (stays dark regardless of mode) ─────────────────────── */
+[data-admin-theme="light"] .bg-slate-950 { background-color: #0f172a; }

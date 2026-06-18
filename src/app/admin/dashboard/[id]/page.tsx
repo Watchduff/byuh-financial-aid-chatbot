@@ -30,17 +30,24 @@ type SupportRequest = {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  pending: "bg-amber-50 text-amber-700 border-amber-200",
-  assigned: "bg-blue-50 text-blue-700 border-blue-200",
-  resolved: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  closed: "bg-slate-100 text-slate-500 border-slate-200",
+  pending:  "bg-ad-warn/15 text-ad-warn  border-ad-warn/30",
+  assigned: "bg-blue-900/30 text-blue-300 border-blue-700/40",
+  resolved: "bg-ad-up/15   text-ad-up    border-ad-up/30",
+  closed:   "bg-white/6    text-ad-muted border-white/10",
 }
 
 const STATUS_DOT: Record<string, string> = {
-  pending: "bg-amber-400",
+  pending:  "bg-ad-warn",
   assigned: "bg-blue-400",
-  resolved: "bg-emerald-400",
-  closed: "bg-slate-300",
+  resolved: "bg-ad-up",
+  closed:   "bg-white/25",
+}
+
+const STATUS_BTN: Record<string, string> = {
+  pending:  "border-ad-warn/30  bg-ad-warn/15  text-ad-warn",
+  assigned: "border-blue-700/40 bg-blue-900/20 text-blue-300",
+  resolved: "border-ad-up/30   bg-ad-up/15    text-ad-up",
+  closed:   "border-white/10   bg-white/6     text-ad-muted",
 }
 
 export default function AdminDetailPage() {
@@ -95,7 +102,6 @@ export default function AdminDetailPage() {
   async function handleSendReply(e: React.FormEvent) {
     e.preventDefault()
     if (!reply.trim() || !agentName.trim()) return
-
     setSending(true)
     try {
       const res = await fetch("/api/admin/agent-messages", {
@@ -103,10 +109,7 @@ export default function AdminDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requestId: id, agentName: agentName.trim(), content: reply.trim() }),
       })
-      if (res.ok) {
-        setReply("")
-        await fetchDetail()
-      }
+      if (res.ok) { setReply(""); await fetchDetail() }
     } finally {
       setSending(false)
     }
@@ -128,11 +131,11 @@ export default function AdminDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-[#f7f4f2] text-sm text-slate-400">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-sm text-ad-muted">
         <div className="flex gap-1.5">
-          <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300 [animation-delay:-0.3s]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300 [animation-delay:-0.15s]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-slate-300" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-white/20 [animation-delay:-0.3s]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-white/20 [animation-delay:-0.15s]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-white/20" />
         </div>
         Loading request…
       </div>
@@ -142,33 +145,33 @@ export default function AdminDetailPage() {
   if (!sr) return null
 
   type TimelineEntry =
-    | { kind: "chat"; msg: ChatMessage }
+    | { kind: "chat";  msg: ChatMessage }
     | { kind: "agent"; msg: AgentMessage }
 
   const timeline: TimelineEntry[] = [
-    ...chatHistory.map((m) => ({ kind: "chat" as const, msg: m })),
-    ...agentMsgs.map((m) => ({ kind: "agent" as const, msg: m })),
+    ...chatHistory.map((m) => ({ kind: "chat"  as const, msg: m })),
+    ...agentMsgs.map((m)   => ({ kind: "agent" as const, msg: m })),
   ].sort((a, b) => new Date(a.msg.createdAt).getTime() - new Date(b.msg.createdAt).getTime())
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#f7f4f2]">
+    <div className="flex min-h-screen flex-col">
       {/* Header */}
-      <header className="border-b border-[#9e1b34]/20 bg-[#BA0C2F] text-white shadow-md">
+      <header className="border-b border-white/7 bg-ad-accent2 text-white shadow-md">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-4">
           <Link
             href="/admin/dashboard"
-            className="rounded-lg p-1.5 text-white/70 transition hover:bg-white/10 hover:text-white"
+            className="rounded-lg p-1.5 text-white/60 transition hover:bg-white/10 hover:text-white"
             aria-label="Back to dashboard"
           >
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
               <path fillRule="evenodd" d="M17 10a.75.75 0 0 1-.75.75H5.612l4.158 3.96a.75.75 0 1 1-1.04 1.08l-5.5-5.25a.75.75 0 0 1 0-1.08l5.5-5.25a.75.75 0 1 1 1.04 1.08L5.612 9.25H16.25A.75.75 0 0 1 17 10Z" clipRule="evenodd" />
             </svg>
           </Link>
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-[10px] font-extrabold ring-1 ring-white/30">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-[10px] font-extrabold ring-1 ring-white/20">
             BYU
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[9px] font-bold uppercase tracking-[0.3em] text-white/60">Support Request</p>
+            <p className="text-[9px] font-bold uppercase tracking-[0.3em] text-white/50">Support Request</p>
             <p className="truncate text-sm font-bold">{sr.userMessage}</p>
           </div>
           <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold capitalize ${STATUS_STYLES[sr.status]}`}>
@@ -179,48 +182,48 @@ export default function AdminDetailPage() {
       </header>
 
       <div className="mx-auto flex w-full max-w-5xl flex-1 gap-5 px-6 py-6">
-        {/* Sidebar: user info + status controls */}
+        {/* Sidebar */}
         <aside className="w-64 shrink-0 space-y-4">
-          <div className="rounded-2xl border border-[#e5dede] bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-[10px] font-bold uppercase tracking-wider text-slate-400">User Info</h2>
+          <div className="rounded-xl border border-white/7 bg-ad-surface p-5 shadow-sm">
+            <h2 className="mb-4 text-[10px] font-bold uppercase tracking-wider text-ad-muted">User Info</h2>
             <div className="space-y-3 text-sm">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Requested</p>
-                <p className="mt-0.5 text-slate-700">{new Date(sr.createdAt).toLocaleString()}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-ad-dim">Requested</p>
+                <p className="mt-0.5 text-ad-text">{new Date(sr.createdAt).toLocaleString()}</p>
               </div>
               {sr.userEmail && (
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Email</p>
-                  <p className="mt-0.5 text-slate-700">{sr.userEmail}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ad-dim">Email</p>
+                  <p className="mt-0.5 text-ad-text">{sr.userEmail}</p>
                 </div>
               )}
               {sr.userPhone && (
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Phone</p>
-                  <p className="mt-0.5 text-slate-700">{sr.userPhone}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ad-dim">Phone</p>
+                  <p className="mt-0.5 text-ad-text">{sr.userPhone}</p>
                 </div>
               )}
               {sr.assignedAgentName && (
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Assigned to</p>
-                  <p className="mt-0.5 font-medium text-slate-700">{sr.assignedAgentName}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-ad-dim">Assigned to</p>
+                  <p className="mt-0.5 font-medium text-ad-text">{sr.assignedAgentName}</p>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[#e5dede] bg-white p-5 shadow-sm">
-            <h2 className="mb-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Update Status</h2>
+          <div className="rounded-xl border border-white/7 bg-ad-surface p-5 shadow-sm">
+            <h2 className="mb-3 text-[10px] font-bold uppercase tracking-wider text-ad-muted">Update Status</h2>
             <div className="space-y-2">
               {(["pending", "assigned", "resolved", "closed"] as const).map((s) => (
                 <button
                   key={s}
                   disabled={sr.status === s || statusUpdating}
                   onClick={() => handleStatusChange(s)}
-                  className={`w-full rounded-xl border py-2 text-xs font-semibold capitalize transition ${
+                  className={`w-full rounded-lg border py-2 text-xs font-semibold capitalize transition ${
                     sr.status === s
-                      ? "border-[#BA0C2F]/30 bg-[#BA0C2F] text-white"
-                      : "border-[#e5dede] bg-white text-slate-600 hover:bg-[#fff7f7] hover:border-[#BA0C2F]/30"
+                      ? STATUS_BTN[s]
+                      : "border-white/7 bg-ad-raised text-ad-muted hover:bg-white/6 hover:text-ad-text"
                   } disabled:cursor-not-allowed disabled:opacity-50`}
                 >
                   {s}
@@ -232,15 +235,14 @@ export default function AdminDetailPage() {
 
         {/* Main: conversation + reply */}
         <div className="flex min-w-0 flex-1 flex-col gap-4">
-          {/* Conversation timeline */}
-          <div className="flex-1 overflow-y-auto rounded-2xl border border-[#e5dede] bg-white p-5 shadow-sm" style={{ minHeight: 320 }}>
+          <div className="flex-1 overflow-y-auto rounded-xl border border-white/7 bg-ad-surface p-5 shadow-sm" style={{ minHeight: 320 }}>
             {timeline.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center py-12 text-center text-sm text-slate-400">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="mb-3 h-8 w-8 text-slate-200">
+              <div className="flex h-full flex-col items-center justify-center py-12 text-center text-sm text-ad-muted">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="mb-3 h-8 w-8 text-white/10">
                   <path fillRule="evenodd" d="M4.848 2.771A49.144 49.144 0 0 1 12 2.25c2.43 0 4.817.178 7.152.52 1.978.292 3.348 2.024 3.348 3.97v6.02c0 1.946-1.37 3.678-3.348 3.97a48.901 48.901 0 0 1-3.476.383.39.39 0 0 0-.297.17l-2.755 4.133a.75.75 0 0 1-1.248 0l-2.755-4.133a.39.39 0 0 0-.297-.17 48.9 48.9 0 0 1-3.476-.384c-1.978-.29-3.348-2.024-3.348-3.97V6.741c0-1.946 1.37-3.68 3.348-3.97Z" clipRule="evenodd" />
                 </svg>
                 No conversation history linked.
-                <p className="mt-1 text-xs text-slate-300">Original message: &ldquo;{sr.userMessage}&rdquo;</p>
+                <p className="mt-1 text-xs text-ad-dim">Original: &ldquo;{sr.userMessage}&rdquo;</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -250,15 +252,13 @@ export default function AdminDetailPage() {
                     const isUser = m.role === "user"
                     return (
                       <div key={m.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                        <div
-                          className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                            isUser
-                              ? "bg-[#BA0C2F] text-white"
-                              : "border border-[#eadfe0] bg-[#fdf8f8] text-slate-800"
-                          }`}
-                        >
+                        <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                          isUser
+                            ? "bg-ad-accent2 text-white"
+                            : "border border-white/7 bg-ad-raised text-ad-text"
+                        }`}>
                           {!isUser && (
-                            <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-slate-400">AI Assistant</p>
+                            <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-ad-muted">AI Assistant</p>
                           )}
                           {m.content}
                         </div>
@@ -268,8 +268,8 @@ export default function AdminDetailPage() {
                     const m = entry.msg
                     return (
                       <div key={m.id} className="flex justify-start">
-                        <div className="max-w-[80%] rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm leading-relaxed text-slate-800">
-                          <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-blue-500">
+                        <div className="max-w-[80%] rounded-2xl border border-blue-700/40 bg-blue-900/20 px-4 py-2.5 text-sm leading-relaxed text-blue-100">
+                          <p className="mb-1 text-[9px] font-bold uppercase tracking-widest text-blue-400">
                             {m.agentName} · You
                           </p>
                           {m.content}
@@ -283,12 +283,11 @@ export default function AdminDetailPage() {
             )}
           </div>
 
-          {/* Reply form */}
           {sr.status !== "closed" ? (
-            <div className="rounded-2xl border border-[#e5dede] bg-white p-5 shadow-sm">
+            <div className="rounded-xl border border-white/7 bg-ad-surface p-5 shadow-sm">
               <form onSubmit={handleSendReply} className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-ad-muted">
                     Your name (shown to user)
                   </label>
                   <input
@@ -297,11 +296,11 @@ export default function AdminDetailPage() {
                     onChange={(e) => setAgentName(e.target.value)}
                     placeholder="e.g. Jershon"
                     required
-                    className="w-full rounded-xl border border-[#dccfd0] bg-[#fdf8f8] px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#BA0C2F]/40 focus:ring-2 focus:ring-[#BA0C2F]/10 placeholder:text-slate-400"
+                    className="w-full rounded-lg border border-white/10 bg-ad-raised px-4 py-2.5 text-sm text-ad-text outline-none transition focus:border-ad-accent/50 focus:ring-2 focus:ring-ad-accent/15 placeholder:text-ad-dim"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-ad-muted">
                     Reply to user
                   </label>
                   <textarea
@@ -310,15 +309,15 @@ export default function AdminDetailPage() {
                     placeholder="Type your response here…"
                     rows={3}
                     required
-                    className="w-full resize-none rounded-xl border border-[#dccfd0] bg-[#fdf8f8] px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[#BA0C2F]/40 focus:ring-2 focus:ring-[#BA0C2F]/10 placeholder:text-slate-400"
+                    className="w-full resize-none rounded-lg border border-white/10 bg-ad-raised px-4 py-2.5 text-sm text-ad-text outline-none transition focus:border-ad-accent/50 focus:ring-2 focus:ring-ad-accent/15 placeholder:text-ad-dim"
                   />
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-xs text-slate-400">Delivered to the user in real time.</p>
+                  <p className="text-xs text-ad-dim">Delivered to the user in real time.</p>
                   <button
                     type="submit"
                     disabled={sending || !reply.trim() || !agentName.trim()}
-                    className="flex items-center gap-2 rounded-xl bg-[#BA0C2F] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#a80b2a] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex items-center gap-2 rounded-lg bg-ad-accent2 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ad-accent active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {sending ? "Sending…" : "Send Reply"}
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
@@ -329,7 +328,7 @@ export default function AdminDetailPage() {
               </form>
             </div>
           ) : (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-center text-sm text-slate-400">
+            <div className="rounded-xl border border-white/7 bg-ad-raised px-5 py-4 text-center text-sm text-ad-muted">
               This request is closed. No further replies can be sent.
             </div>
           )}

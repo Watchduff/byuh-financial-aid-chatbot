@@ -22,6 +22,8 @@ Rules:
 - Return a JSON object with key "suggestions" containing an array of exactly 3 strings`
 
 export async function POST(req: NextRequest) {
+  // LIVE_SUPPORT_DISABLED — remove this block to re-enable
+  return Response.json({ error: "Live support is temporarily unavailable." }, { status: 503 })
   try {
     const body = await req.json().catch(() => ({}))
     const requestId = (body.requestId as string | undefined)?.trim()

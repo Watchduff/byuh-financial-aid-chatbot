@@ -26,6 +26,8 @@ function latestUserQuestion(messages: IncomingMessage[]) {
 }
 
 export async function POST(req: NextRequest) {
+  // LIVE_SUPPORT_DISABLED — remove this block to re-enable
+  return Response.json({ error: "Live support is temporarily unavailable." }, { status: 503 })
   try {
     // Enforce office hours server-side so direct API calls can't bypass the UI guard
     const availability = getSupportAvailability()

@@ -554,6 +554,17 @@ export default function Page() {
   }
 
   async function handleSpeakToHuman(options: SupportRequestOptions = {}) {
+    // LIVE_SUPPORT_DISABLED — remove this block to re-enable
+    const unavailableMsg: UIMessage = {
+      id: generateId(),
+      role: "assistant",
+      mode: "unavailable",
+      content: "Live advisor support is temporarily unavailable. For assistance, please contact the BYU–Hawaii Financial Aid Office directly at financialaid.byuh.edu or call (808) 675-3316.",
+      sources: [],
+    }
+    setMessages((prev) => [...prev, unavailableMsg])
+    return
+
     const currentMessages = options.messagesOverride ?? messagesRef.current
 
     if (supportRequestId) return
@@ -655,7 +666,7 @@ export default function Page() {
         {/* ── Main content column ── */}
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {/* Header */}
-          <header className="shrink-0 border-b border-[#9e1b34]/20 bg-[#BA0C2F] text-white shadow-md">
+          <header className="shrink-0 border-b border-[#9e1b34]/20 bg-ad-accent2 text-white shadow-md">
             <div className="flex items-center gap-3 px-4 py-3 md:px-6">
               {/* Hamburger — mobile only */}
               <button

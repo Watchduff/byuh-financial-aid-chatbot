@@ -9,6 +9,8 @@ export const runtime = "nodejs"
 const ESCALATION_NOTE_PREFIX = "[Support escalation]"
 
 export async function GET(req: NextRequest) {
+  // LIVE_SUPPORT_DISABLED — remove this block to re-enable
+  return Response.json({ supportRequests: [] }, { status: 200 })
   try {
     const status = req.nextUrl.searchParams.get("status")
     const where =

@@ -27,6 +27,8 @@ function withExpiredStatuses(state: typeof typingStates.$inferSelect) {
 }
 
 export async function POST(req: NextRequest) {
+  // LIVE_SUPPORT_DISABLED — remove this block to re-enable
+  return Response.json({ error: "Live support is temporarily unavailable." }, { status: 503 })
   const body = await req.json().catch(() => ({}))
   const requestId = (body.requestId as string | undefined)?.trim()
   const role = body.role as TypingRole | undefined
@@ -92,6 +94,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  // LIVE_SUPPORT_DISABLED — remove this block to re-enable
+  return Response.json({ studentTyping: false, adminTyping: false, studentDraft: "" }, { status: 200 })
   const requestId = req.nextUrl.searchParams.get("requestId")?.trim()
 
   if (!requestId) {

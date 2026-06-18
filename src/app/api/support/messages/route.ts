@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
 export async function GET(req: NextRequest) {
+  // LIVE_SUPPORT_DISABLED — remove this block to re-enable
+  return Response.json({ error: "Live support is temporarily unavailable." }, { status: 503 })
   try {
     const requestId = req.nextUrl.searchParams.get("requestId")
     if (!requestId) {

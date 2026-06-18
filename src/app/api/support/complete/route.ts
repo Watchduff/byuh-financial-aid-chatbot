@@ -7,6 +7,8 @@ export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
 export async function POST(req: NextRequest) {
+  // LIVE_SUPPORT_DISABLED — remove this block to re-enable
+  return Response.json({ error: "Live support is temporarily unavailable." }, { status: 503 })
   try {
     const body = await req.json().catch(() => ({}))
     const requestId = (body.requestId as string | undefined)?.trim()
