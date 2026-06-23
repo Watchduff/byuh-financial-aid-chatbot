@@ -54,6 +54,7 @@ type KnowledgeGap = {
   confidence: "high" | "low" | null
   sources: string[]
   reason: string
+  conversationId: string
 }
 type ConfidenceFilter = "all" | "high" | "low"
 type TypeFilter = "all" | "bot-only" | "escalated"
@@ -533,15 +534,6 @@ export default function AdminConsolePage() {
     if (typeFilter === "bot-only") return historyConversations.filter((c) => !c.hasLiveSupport)
     return historyConversations
   }, [historyConversations, typeFilter])
-
-  const historyTypeCounts = useMemo(() => {
-    const escalated = historyConversations.filter((conversation) => conversation.hasLiveSupport).length
-    return {
-      all: historyConversations.length,
-      botOnly: historyConversations.length - escalated,
-      escalated,
-    }
-  }, [historyConversations])
 
   const filteredQuestionsCount = useMemo(() =>
     filteredHistoryConversations.reduce((sum, c) => sum + c.total, 0),
@@ -1990,33 +1982,6 @@ export default function AdminConsolePage() {
                               </div>
 
                               <div>
-                                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Type</p>
-                                <div className="flex flex-wrap gap-2">
-                                  {([
-                                    { id: "all" as TypeFilter, label: "All", count: historyTypeCounts.all },
-                                    { id: "bot-only" as TypeFilter, label: "Bot Only", count: historyTypeCounts.botOnly },
-                                    { id: "escalated" as TypeFilter, label: "Escalated", count: historyTypeCounts.escalated },
-                                  ]).map((option) => (
-                                    <button
-                                      key={option.id}
-                                      type="button"
-                                      onClick={() => setTypeFilter(option.id)}
-                                      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                                        typeFilter === option.id
-                                          ? "border-[#9E1B34] bg-[#9E1B34] text-white"
-                                          : "border-white/7 bg-ad-surface text-ad-muted hover:bg-ad-raised"
-                                      }`}
-                                    >
-                                      {option.label}
-                                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${typeFilter === option.id ? "bg-white/20 text-white" : "bg-white/8 text-[#787878]"}`}>
-                                        {option.count}
-                                      </span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-
-                              <div>
                                 <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Group</p>
                                 <div className="inline-flex items-center gap-1 rounded-lg border border-white/7 bg-ad-raised p-0.5">
                                   {(["day", "month"] as const).map((option) => (
@@ -2304,7 +2269,10 @@ export default function AdminConsolePage() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => setFilter("history" as Filter)}
+                          onClick={() => {
+                            setSelectedHistoryConversationId(gap.conversationId)
+                            setFilter("history" as Filter)
+                          }}
                           className="shrink-0 rounded-lg border border-white/7 bg-ad-surface px-3 py-2 text-xs font-semibold text-ad-muted transition hover:bg-white/6 hover:text-white"
                         >
                           View in History

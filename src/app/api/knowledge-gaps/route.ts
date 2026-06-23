@@ -32,6 +32,7 @@ export type KnowledgeGap = {
   confidence: "high" | "low" | null
   sources: string[]
   reason: string
+  conversationId: string
 }
 
 export async function GET() {
@@ -78,6 +79,7 @@ export async function GET() {
           existing.confidence = confidence
           existing.sources = sources
           existing.reason = reason
+          existing.conversationId = conv.id
         } else {
           gapMap.set(key, {
             question: msg.content.trim(),
@@ -86,6 +88,7 @@ export async function GET() {
             confidence,
             sources,
             reason,
+            conversationId: conv.id,
           })
         }
       }

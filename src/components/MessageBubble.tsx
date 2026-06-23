@@ -266,8 +266,6 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
         >
           {content}
         </ReactMarkdown>
-        {sources && sources.length > 0 && <SourcePills sources={sources} uiText={uiText} />}
-
         {/* Feedback section */}
         <div className="mt-4 border-t border-slate-100 pt-3">
           {step === "done" ? (
@@ -369,20 +367,6 @@ export default function MessageBubble({ role, content, mode, sources, agentName,
             </div>
           )}
         </div>
-        {onFollowUp && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {followUps.map((question) => (
-              <button
-                key={question}
-                type="button"
-                onClick={() => onFollowUp(question)}
-                className="rounded-full border border-[#e5dede] bg-[#fdf8f8] px-3 py-1.5 text-[11px] font-medium text-[#9E1B34] transition hover:bg-[#fff0f0]"
-              >
-                {question}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   )
