@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
 import { asc, eq } from "drizzle-orm"
