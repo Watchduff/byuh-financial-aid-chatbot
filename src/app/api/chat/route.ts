@@ -742,7 +742,7 @@ async function buildFallbackResponse(
 // on-topic without the user needing to repeat themselves.
 // ---------------------------------------------------------------------------
 const VAGUE_FOLLOWUP_RE =
-  /^(tell me more|more details?|elaborate|explain\s*(that|more|it)?|what about (that|this|it)|and (that|this|it)|go on|continue|more info(rmation)?|what else|i see|uh[- ]?huh|yeah|yes please|ok(ay)?|sure|sounds good|can you explain)/i
+  /^(tell me more|more details?|elaborate|explain\s*(that|more|it)?|what about (that|this|it)|and (that|this|it)|go on|continue|more info(rmation)?|what else|i see|uh[- ]?huh|yeah|yes please|ok(ay)?|sure|sounds good|can you explain|what (is|are|was|were) (this|that|those|these)( for| about)?|this is for what|for what( again| though)?|what again|so what (is|are|was) (this|that)|what does (this|that) mean|what (do|does|did) (this|that|it) (mean|refer to|apply to)?|what (is|are) (the )?requirements?( for)?|requirements? for what|what (was|is) that (about|for|again)?|wait,?\s*what|what (are we|were we) (talking about|discussing)|this (applies?|is) (to|for) what|so (this|that) is (for|about) what|what (is|are|was) (it|this|that) (again|about|for)?)/i
 
 function buildRetrievalQuery(message: string, history: ConversationTurn[]): string {
   if (history.length === 0) return message
@@ -750,8 +750,8 @@ function buildRetrievalQuery(message: string, history: ConversationTurn[]): stri
   const isShort = wordCount < 5
   const isVague = VAGUE_FOLLOWUP_RE.test(message.trim())
   if (!isShort && !isVague) return message
-  const recentContext = history.slice(-4).map((t) => t.content).join(" ")
-  return `${recentContext} ${message}`.slice(0, 600)
+  const recentContext = history.slice(-6).map((t) => t.content).join(" ")
+  return `${recentContext} ${message}`.slice(0, 800)
 }
 
 // ---------------------------------------------------------------------------
@@ -851,7 +851,7 @@ export async function POST(req: Request) {
         content: String(t.content).slice(0, 1000),
       }))
       .filter((t) => t.content.trim().length > 0)
-      .slice(-6)
+      .slice(-12)
 
     if (!message) {
       return NextResponse.json({ error: "Message is required." }, { status: 400 })
@@ -980,8 +980,11 @@ export async function POST(req: Request) {
     if (!confident) {
       console.log("[chat] Low retrieval confidence — attempting verified-facts LLM response")
       try {
+        const lowConfHistoryHint = history.length > 0
+          ? "\n\nIMPORTANT: Use the conversation history above to understand what the student is referring to before answering."
+          : ""
         const userMsg =
-          `${languageInstruction(language)}\n\nUser question: ${message}\n\n` +
+          `${languageInstruction(language)}${lowConfHistoryHint}\n\nUser question: ${message}\n\n` +
           `Context from BYU–Hawaii Financial Aid website (partial match):\n${context}\n\n` +
           `Note: Retrieval confidence is low. Prioritize VERIFIED FACTS from your system prompt ` +
           `for scholarship, deadline, FAFSA, and tuition questions. If not covered by verified ` +
@@ -1029,7 +1032,11 @@ export async function POST(req: Request) {
           )
         : undefined
 
-    const userMessage = `${languageInstruction(language)}\n\nUser question: ${message}\n\nContext from BYU–Hawaii Financial Aid website:\n${context}`
+    const historyHint = history.length > 0
+      ? "\n\nIMPORTANT: Use the conversation history above to understand what the student is referring to. If their question is vague or uses pronouns (\"this\", \"that\", \"it\", \"those\"), resolve the reference from the prior turns before answering."
+      : ""
+
+    const userMessage = `${languageInstruction(language)}${historyHint}\n\nUser question: ${message}\n\nContext from BYU–Hawaii Financial Aid website:\n${context}`
 
     const enc = new TextEncoder()
     const abort = new AbortController()

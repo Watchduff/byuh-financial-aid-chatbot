@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 
 type ChatMessage = {
   id: number
@@ -203,12 +204,32 @@ function deletedCategory(request: SupportRequest) {
 }
 
 
-export default function AdminConsolePage() {
+const VALID_FILTERS: Filter[] = ["overview", "trash", "history", "analytics", "knowledge-gaps"]
+
+function AdminConsolePageInner() {
   const adminName = "Financial Aid Advisor"
-  const [filter, setFilter] = useState<Filter>("overview")
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  function parseTabParam(param: string | null): Filter {
+    if (param && (VALID_FILTERS as string[]).includes(param)) return param as Filter
+    return "overview"
+  }
+
+  const [filter, setFilter] = useState<Filter>(() => parseTabParam(searchParams.get("tab")))
+
+  function navigateTo(tab: Filter) {
+    setFilter(tab)
+    if (tab !== "history") { setActiveTopicFilter(null); setActiveDateFilter(null) }
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("tab", tab)
+    router.replace(`?${params.toString()}`, { scroll: false })
+  }
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all")
   const [historyGroupBy, setHistoryGroupBy] = useState<HistoryGroupBy>("day")
   const [historySearch, setHistorySearch] = useState("")
+  const [activeTopicFilter, setActiveTopicFilter] = useState<{ label: string; keywords: string[] } | null>(null)
+  const [activeDateFilter, setActiveDateFilter] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all")
   const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false)
   const [selectedHistoryConversationId, setSelectedHistoryConversationId] = useState<string | null>(null)
@@ -241,10 +262,23 @@ export default function AdminConsolePage() {
   const [monthlyDetail, setMonthlyDetail] = useState<MonthlyDetail | null>(null)
   const [monthlyDetailLoading, setMonthlyDetailLoading] = useState(false)
   const [feedbackStats, setFeedbackStats] = useState<{ totals: { helpful: number; notHelpful: number; total: number }; recent: Array<{ id: number; question: string; answer: string; reason: string | null; comment: string | null; createdAt: string }> } | null>(null)
-  const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default")
   const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGap[]>([])
   const [knowledgeGapsLoading, setKnowledgeGapsLoading] = useState(false)
   const [darkMode, setDarkMode] = useState(true)
+
+  type DeletedConversation = {
+    id: string
+    title: string
+    sessionId: string
+    createdAt: string
+    deletedAt: string
+    messageCount: number
+  }
+  const [deletedConversations, setDeletedConversations] = useState<DeletedConversation[]>([])
+  const [deletedConvsLoading, setDeletedConvsLoading] = useState(false)
+  const [deletingConvId, setDeletingConvId] = useState<string | null>(null)
+  const [restoringConvId, setRestoringConvId] = useState<string | null>(null)
+  const [permanentDeletingConvId, setPermanentDeletingConvId] = useState<string | null>(null)
 
   useEffect(() => {
     const stored = localStorage.getItem("admin-dark-mode")
@@ -341,6 +375,68 @@ export default function AdminConsolePage() {
     } catch {}
   }, [])
 
+  const fetchDeletedConversations = useCallback(async () => {
+    setDeletedConvsLoading(true)
+    try {
+      const res = await fetch("/api/admin/conversations/deleted")
+      if (res.ok) {
+        const data = await res.json()
+        setDeletedConversations(data.conversations ?? [])
+      }
+    } catch {} finally {
+      setDeletedConvsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (filter === "trash") fetchDeletedConversations()
+  }, [filter, fetchDeletedConversations])
+
+  async function deleteConversation(id: string) {
+    setDeletingConvId(id)
+    try {
+      const res = await fetch(`/api/admin/conversations/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete" }),
+      })
+      if (res.ok) {
+        await fetchChatHistory()
+        await fetchDeletedConversations()
+      }
+    } finally {
+      setDeletingConvId(null)
+    }
+  }
+
+  async function restoreConversation(id: string) {
+    setRestoringConvId(id)
+    try {
+      const res = await fetch(`/api/admin/conversations/${id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "restore" }),
+      })
+      if (res.ok) {
+        await fetchChatHistory()
+        await fetchDeletedConversations()
+      }
+    } finally {
+      setRestoringConvId(null)
+    }
+  }
+
+  async function permanentDeleteConversation(id: string) {
+    if (!window.confirm("Permanently delete this conversation? This cannot be undone.")) return
+    setPermanentDeletingConvId(id)
+    try {
+      const res = await fetch(`/api/admin/conversations/${id}`, { method: "DELETE" })
+      if (res.ok) await fetchDeletedConversations()
+    } finally {
+      setPermanentDeletingConvId(null)
+    }
+  }
+
   useEffect(() => {
     if (filter === "overview") fetchFeedbackStats()
   }, [filter, fetchFeedbackStats])
@@ -423,13 +519,6 @@ export default function AdminConsolePage() {
     return { pending, answered, all: visible.length }
   }, [requests])
 
-  // Sync notification permission state on mount
-  useEffect(() => {
-    if (typeof window !== "undefined" && "Notification" in window) {
-      setNotifPermission(Notification.permission)
-    }
-  }, [])
-
   // Update browser tab title with pending count so it's visible from any tab
   useEffect(() => {
     if (counts.pending > 0) {
@@ -479,10 +568,21 @@ export default function AdminConsolePage() {
         ? chatHistory
         : chatHistory.filter((entry) => entry.confidence === confidenceFilter)
 
-    const query = historySearch.trim().toLowerCase()
-    if (!query) return byConfidence
+    const byTopic = activeTopicFilter
+      ? byConfidence.filter((entry) => {
+          const haystack = `${entry.conversationTitle} ${entry.question} ${entry.answer}`.toLowerCase()
+          return activeTopicFilter.keywords.some((kw) => haystack.includes(kw))
+        })
+      : byConfidence
 
-    return byConfidence.filter((entry) =>
+    const byDate = activeDateFilter
+      ? byTopic.filter((entry) => toHawaiiDateString(entry.questionAt) === activeDateFilter)
+      : byTopic
+
+    const query = historySearch.trim().toLowerCase()
+    if (!query) return byDate
+
+    return byDate.filter((entry) =>
       [
         entry.conversationTitle,
         entry.question,
@@ -491,7 +591,7 @@ export default function AdminConsolePage() {
         ...entry.sources,
       ].some((value) => value.toLowerCase().includes(query))
     )
-  }, [chatHistory, confidenceFilter, historySearch])
+  }, [chatHistory, confidenceFilter, historySearch, activeTopicFilter, activeDateFilter])
 
   const historyConversations = useMemo(() => {
     const byConversation = new Map<string, ChatHistoryEntry[]>()
@@ -593,22 +693,29 @@ export default function AdminConsolePage() {
   const isAnalyticsView = filter === "analytics"
   const isKnowledgeGapsView = filter === "knowledge-gaps"
 
+  // Hawaii is UTC-10 and never observes DST
+  function toHawaiiDateString(utcStr: string): string {
+    const d = new Date(new Date(utcStr).getTime() - 10 * 60 * 60 * 1000)
+    return d.toISOString().slice(0, 10)
+  }
+
   // 14-day conversation chart data derived from chatHistory
   const conversationChart = useMemo(() => {
+    const todayHawaii = toHawaiiDateString(new Date().toISOString())
+    const todayMs = new Date(todayHawaii).getTime()
     const days: { label: string; date: string; count: number }[] = []
     for (let i = 13; i >= 0; i--) {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
+      const d = new Date(todayMs - i * 24 * 60 * 60 * 1000)
       const dateStr = d.toISOString().slice(0, 10)
       days.push({
         date: dateStr,
-        label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+        label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
         count: 0,
       })
     }
     const conversationDays = new Map<string, Set<string>>()
     for (const entry of chatHistory) {
-      const day = entry.questionAt.slice(0, 10)
+      const day = toHawaiiDateString(entry.questionAt)
       if (!conversationDays.has(day)) conversationDays.set(day, new Set())
       conversationDays.get(day)!.add(entry.conversationId)
     }
@@ -616,19 +723,76 @@ export default function AdminConsolePage() {
       slot.count = conversationDays.get(slot.date)?.size ?? 0
     }
     return days
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatHistory])
 
-  // TODO: replace these with real DB queries
-  const MOCK_RESOLVED_RATE = 72        // % resolved without staff
-  const MOCK_HOURS_SAVED  = 14.5       // staff hours saved this month
-  const MOCK_SATISFACTION = 88         // % helpful feedback
-  const MOCK_TOP_TOPICS = [            // top conversation topics
-    { label: "FAFSA & Aid Application", pct: 38 },
-    { label: "Scholarship Requirements", pct: 27 },
-    { label: "Disbursement Dates", pct: 18 },
-    { label: "SAP & Appeals", pct: 11 },
-    { label: "Work Study / Employment", pct: 6 },
+  const todaySessionStats = useMemo(() => {
+    const today = conversationChart.at(-1)?.count ?? 0
+    const yesterday = conversationChart.at(-2)?.count ?? 0
+    const diff = today - yesterday
+    const trend = diff > 0 ? `↑ ${diff} vs yesterday` : diff < 0 ? `↓ ${Math.abs(diff)} vs yesterday` : "Same as yesterday"
+    return { today, trend }
+  }, [conversationChart])
+
+  // ~15 min saved per bot-handled question (industry standard for FA email inquiries)
+  const MINS_PER_INQUIRY = 15
+
+  const staffHoursSaved = useMemo(() => {
+    const now = new Date()
+    const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+    // Count non-escalated bot answers this month (conversational greetings excluded)
+    const handled = chatHistory.filter((entry) => {
+      if (!entry.questionAt) return false
+      const entryMonth = entry.questionAt.slice(0, 7)
+      if (entryMonth !== thisMonth) return false
+      return entry.mode !== "handoff" && entry.mode !== "unavailable"
+    }).length
+    const hours = (handled * MINS_PER_INQUIRY) / 60
+    return hours > 0 ? parseFloat(hours.toFixed(1)) : 0
+  }, [chatHistory])
+
+  const TOPIC_DEFINITIONS = [
+    { label: "FAFSA & Aid Application", keywords: ["fafsa", "financial aid", "aid application", "federal aid", "student aid", "apply for aid", "efc", "expected family contribution", "css profile", "pell grant"] },
+    { label: "Scholarship Requirements", keywords: ["scholarship", "merit", "renewal", "eligibility", "gpa requirement", "byu scholarship", "academic scholarship", "dean's list"] },
+    { label: "Disbursement Dates", keywords: ["disbursement", "when will i get", "when will i receive", "refund", "check", "deposit", "funds released", "direct deposit", "payment date"] },
+    { label: "SAP & Appeals", keywords: ["sap", "satisfactory academic progress", "appeal", "academic standing", "financial aid suspension", "warning", "probation"] },
+    { label: "Work Study / Employment", keywords: ["work study", "work-study", "iwork", "i-work", "campus job", "student employment", "iwork payback", "payback", "on-campus work"] },
+    { label: "Cost of Attendance", keywords: ["tuition", "cost of attendance", "coa", "fees", "room and board", "housing cost", "how much does it cost", "total cost"] },
+    { label: "Verification & Documents", keywords: ["verification", "document", "submit", "upload", "form", "required document", "tax return", "w2", "identity verification"] },
   ]
+
+  const topTopics = useMemo(() => {
+    // Build a combined text blob per conversation from all user questions + answers
+    const byConversation = new Map<string, string>()
+    for (const entry of chatHistory) {
+      const existing = byConversation.get(entry.conversationId) ?? ""
+      byConversation.set(entry.conversationId, `${existing} ${entry.question} ${entry.answer}`)
+    }
+
+    // Assign each conversation to the first matching topic (priority order)
+    const counts = new Map<string, number>(TOPIC_DEFINITIONS.map((t) => [t.label, 0]))
+    for (const text of byConversation.values()) {
+      const lower = text.toLowerCase()
+      for (const topic of TOPIC_DEFINITIONS) {
+        if (topic.keywords.some((kw) => lower.includes(kw))) {
+          counts.set(topic.label, (counts.get(topic.label) ?? 0) + 1)
+          break
+        }
+      }
+    }
+
+    const totalClassified = Array.from(counts.values()).reduce((a, b) => a + b, 0)
+    return TOPIC_DEFINITIONS
+      .map((topic) => ({
+        label: topic.label,
+        keywords: topic.keywords,
+        count: counts.get(topic.label) ?? 0,
+        pct: totalClassified > 0 ? Math.round(((counts.get(topic.label) ?? 0) / totalClassified) * 100) : 0,
+      }))
+      .filter((t) => t.count > 0)
+      .sort((a, b) => b.count - a.count)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatHistory])
 
   useEffect(() => {
     if (!isHistoryView) return
@@ -897,7 +1061,6 @@ export default function AdminConsolePage() {
     <div class="card"><div class="card-label">Questions Asked</div><div class="card-value">${totals.questions}</div></div>
     <div class="card"><div class="card-label">High Confidence</div><div class="card-value" style="color:#059669">${totals.high}</div></div>
     <div class="card"><div class="card-label">Low Confidence</div><div class="card-value" style="color:#d97706">${totals.low}</div></div>
-    <div class="card"><div class="card-label">Escalations</div><div class="card-value" style="color:#dc2626">${totals.escalations}</div></div>
     <div class="card"><div class="card-label">High Confidence %</div><div class="card-value">${highPct}%</div></div>
   </div>
 
@@ -906,7 +1069,7 @@ export default function AdminConsolePage() {
     <thead>
       <tr>
         <th>Month</th><th>Conversations</th><th>Questions</th>
-        <th>High Confidence</th><th>Low Confidence</th><th>High %</th><th>Escalations</th>
+        <th>High Confidence</th><th>Low Confidence</th><th>High %</th>
       </tr>
     </thead>
     <tbody>${monthRows}</tbody>
@@ -972,7 +1135,6 @@ export default function AdminConsolePage() {
     <div class="card"><div class="card-label">Questions Asked</div><div class="card-value">${totals.questions}</div></div>
     <div class="card"><div class="card-label">High Confidence</div><div class="card-value" style="color:#059669">${totals.high}</div></div>
     <div class="card"><div class="card-label">Low Confidence</div><div class="card-value" style="color:#d97706">${totals.low}</div></div>
-    <div class="card"><div class="card-label">Escalations</div><div class="card-value" style="color:#dc2626">${totals.escalations}</div></div>
     <div class="card"><div class="card-label">High Confidence %</div><div class="card-value">${highPct}%</div></div>
   </div>
 
@@ -981,7 +1143,7 @@ export default function AdminConsolePage() {
     <thead>
       <tr>
         <th>Day</th><th>Conversations</th><th>Questions</th>
-        <th>High Confidence</th><th>Low Confidence</th><th>High %</th><th>Escalations</th>
+        <th>High Confidence</th><th>Low Confidence</th><th>High %</th>
       </tr>
     </thead>
     <tbody>${dayRows}</tbody>
@@ -1033,9 +1195,9 @@ export default function AdminConsolePage() {
             </svg>
           </button>
 
-          <div className="mb-7 flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-full bg-white leading-none shadow-sm">
-            <span className="text-[10px] font-extrabold text-[#9E1B34]">BYU</span>
-            <span className="text-[5.5px] font-bold uppercase tracking-wide text-[#9E1B34]">HAWAII</span>
+          <div className="mb-7 flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-full bg-white/15 leading-none shadow-sm ring-2 ring-white/30">
+            <span className="text-[10px] font-extrabold text-white">BYU</span>
+            <span className="text-[5px] font-bold uppercase tracking-widest text-white/80">HAWAII</span>
           </div>
 
           <nav className="flex flex-1 flex-col items-center gap-3">
@@ -1043,7 +1205,7 @@ export default function AdminConsolePage() {
               {
                 label: "Overview",
                 active: isOverviewView,
-                onClick: () => setFilter("overview" as Filter),
+                onClick: () => navigateTo("overview"),
                 icon: (
                   <path fillRule="evenodd" d="M9.293 2.293a1 1 0 0 1 1.414 0l7 7A1 1 0 0 1 17 11h-1v6a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6H3a1 1 0 0 1-.707-1.707l7-7Z" clipRule="evenodd" />
                 ),
@@ -1052,7 +1214,7 @@ export default function AdminConsolePage() {
                 label: "Live Support",
                 active: filter === "pending" || filter === "answered" || filter === "all",
                 dot: counts.pending > 0,
-                onClick: () => setFilter("pending" as Filter),
+                onClick: () => navigateTo("pending"),
                 icon: (
                   <path fillRule="evenodd" d="M2 5.75A2.75 2.75 0 0 1 4.75 3h10.5A2.75 2.75 0 0 1 18 5.75v8.5A2.75 2.75 0 0 1 15.25 17H4.75A2.75 2.75 0 0 1 2 14.25v-8.5Zm2.75-1.25c-.69 0-1.25.56-1.25 1.25v1h13v-1c0-.69-.56-1.25-1.25-1.25H4.75Zm11.75 3.75h-13v6c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6Z" clipRule="evenodd" />
                 ),
@@ -1061,7 +1223,7 @@ export default function AdminConsolePage() {
                 label: "Chat History",
                 count: historyCounts.conversations,
                 active: isHistoryView,
-                onClick: () => setFilter("history" as Filter),
+                onClick: () => navigateTo("history"),
                 icon: (
                   <path fillRule="evenodd" d="M10 3c-4.418 0-8 2.91-8 6.5 0 1.508.635 2.89 1.697 3.993-.102.838-.367 1.522-.667 2.04a.75.75 0 0 0 .889 1.09 8.66 8.66 0 0 0 2.826-1.563A9.43 9.43 0 0 0 10 16c4.418 0 8-2.91 8-6.5S14.418 3 10 3ZM6.75 9.5a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H6.75Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H10Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5h-.008Z" clipRule="evenodd" />
                 ),
@@ -1070,7 +1232,7 @@ export default function AdminConsolePage() {
                 label: "Knowledge Gaps",
                 count: knowledgeGaps.length,
                 active: isKnowledgeGapsView,
-                onClick: () => setFilter("knowledge-gaps" as Filter),
+                onClick: () => navigateTo("knowledge-gaps"),
                 icon: (
                   <path d="M10 1a6 6 0 0 0-3.815 10.631C7.237 12.5 8 13.443 8 14.456v.644a.75.75 0 0 0 .572.729 6.016 6.016 0 0 0 2.856 0A.75.75 0 0 0 12 15.1v-.644c0-1.013.762-1.957 3.815-2.825A6 6 0 0 0 10 1ZM9.5 16.25a.75.75 0 0 0 0 1.5h1a.75.75 0 0 0 0-1.5h-1Z" />
                 ),
@@ -1079,16 +1241,16 @@ export default function AdminConsolePage() {
                 label: "Analytics",
                 count: analyticsData?.totals.questions ?? 0,
                 active: isAnalyticsView,
-                onClick: () => setFilter("analytics" as Filter),
+                onClick: () => navigateTo("analytics"),
                 icon: (
                   <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM9.5 6A1.5 1.5 0 0 0 8 7.5v9a1.5 1.5 0 0 0 3 0v-9A1.5 1.5 0 0 0 9.5 6ZM3.5 10A1.5 1.5 0 0 0 2 11.5v5a1.5 1.5 0 0 0 3 0v-5A1.5 1.5 0 0 0 3.5 10Z" />
                 ),
               },
               {
                 label: "Trash Bin",
-                count: trashCounts.all,
+                count: deletedConversations.length,
                 active: isTrashView,
-                onClick: () => setFilter("trash" as Filter),
+                onClick: () => navigateTo("trash"),
                 icon: (
                   <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4Z" clipRule="evenodd" />
                 ),
@@ -1100,6 +1262,7 @@ export default function AdminConsolePage() {
                 key={item.label}
                 type="button"
                 onClick={() => {
+                  if (isLiveSupportDisabled) return
                   item.onClick()
                   setSidebarOpen(false)
                 }}
@@ -1171,24 +1334,6 @@ export default function AdminConsolePage() {
                 </h2>
                 <p className="mt-1 text-sm text-[#787878]">{activeFilter.description}</p>
               </div>
-              {notifPermission !== "granted" && notifPermission !== "denied" && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (typeof window !== "undefined" && "Notification" in window) {
-                      const result = await Notification.requestPermission()
-                      setNotifPermission(result)
-                    }
-                  }}
-                  className="hidden items-center gap-1.5 rounded-lg border border-ad-warn/30 bg-ad-warn/10 px-3 py-2 text-xs font-semibold text-ad-warn transition hover:bg-ad-warn/20 sm:flex"
-                  title="Enable browser notifications for new live support requests"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0">
-                    <path fillRule="evenodd" d="M4 8a6 6 0 1 1 12 0v2.967c0 .348.128.682.36.936l1.2 1.322A1.75 1.75 0 0 1 16.292 16H3.708a1.75 1.75 0 0 1-1.268-2.775l1.2-1.322A1.25 1.25 0 0 0 4 10.967V8Zm6 10a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2Z" clipRule="evenodd" />
-                  </svg>
-                  Enable alerts
-                </button>
-              )}
               <button
                 type="button"
                 onClick={toggleDarkMode}
@@ -1229,7 +1374,7 @@ export default function AdminConsolePage() {
                   <button
                     key={option.id}
                     type="button"
-                    onClick={() => setFilter(option.id)}
+                    onClick={() => navigateTo(option.id)}
                     className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition ${
                       filter === option.id
                         ? "bg-[#9E1B34] text-white shadow-sm"
@@ -1261,19 +1406,53 @@ export default function AdminConsolePage() {
             )}
 
             {isTrashView && (
-              <div className="mb-6 grid gap-4 sm:grid-cols-3">
-                {[
-                  { label: "Deleted Pending", count: trashCounts.pending },
-                  { label: "Deleted Answered", count: trashCounts.answered },
-                  { label: "All Deleted Requests", count: trashCounts.all },
-                ].map((item) => (
-                  <div key={item.label} className="rounded-lg border border-white/7 bg-ad-surface px-6 py-5 shadow-sm">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
-                      {item.label}
-                    </p>
-                    <p className="mt-2 text-2xl font-bold text-[#9E1B34]">{item.count}</p>
+              <div className="space-y-6">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {[
+                    { label: "Deleted Conversations", count: deletedConversations.length },
+                    { label: "Total Messages", count: deletedConversations.reduce((s, c) => s + c.messageCount, 0) },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-lg border border-white/7 bg-ad-surface px-6 py-5 shadow-sm">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">{item.label}</p>
+                      <p className="mt-2 text-2xl font-bold text-[#9E1B34]">{item.count}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {deletedConvsLoading ? (
+                  <p className="py-10 text-center text-sm text-ad-dim">Loading...</p>
+                ) : deletedConversations.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center rounded-lg border border-white/7 bg-ad-surface py-20 text-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mb-3 h-8 w-8 text-ad-dim">
+                      <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4Z" clipRule="evenodd" />
+                    </svg>
+                    <p className="text-sm font-semibold text-ad-dim">Trash is empty</p>
+                    <p className="mt-1 text-xs text-ad-dim">Conversations deleted from Chat History appear here.</p>
                   </div>
-                ))}
+                ) : (
+                  <div className="space-y-3">
+                    {deletedConversations.map((conv) => (
+                      <div key={conv.id} className="flex items-center justify-between gap-4 rounded-lg border border-white/7 bg-ad-surface px-6 py-4 shadow-sm">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-ad-text">{conv.title}</p>
+                          <p className="mt-0.5 text-[10px] text-ad-muted">
+                            {conv.messageCount} messages · Deleted {new Date(conv.deletedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => restoreConversation(conv.id)}
+                            disabled={restoringConvId === conv.id}
+                            className="rounded-lg border border-white/7 bg-ad-raised px-3 py-1.5 text-xs font-semibold text-ad-muted transition hover:bg-white/8 hover:text-ad-text disabled:opacity-50"
+                          >
+                            {restoringConvId === conv.id ? "Restoring..." : "Restore"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1300,10 +1479,6 @@ export default function AdminConsolePage() {
                       <h1 className="mt-0.5 text-lg font-bold text-white">Financial Aid Assistant · Admin Console</h1>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
-                      <span className="flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
-                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                        Live · {counts.pending} active {counts.pending === 1 ? "chat" : "chats"}
-                      </span>
                       <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white">
                         {new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" })}
                       </span>
@@ -1312,42 +1487,40 @@ export default function AdminConsolePage() {
                 </div>
 
                 {/* ── Four metric cards ── */}
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-4 sm:grid-cols-3">
                   {[
                     {
                       label: "Conversations",
                       value: historyCounts.conversations,
                       sub: "All time",
                       color: "text-ad-text",
-                      real: true,
+                      tab: "history" as Filter,
                     },
                     {
-                      label: "Resolved without staff",
-                      value: `${MOCK_RESOLVED_RATE}%`,
-                      sub: "This month · TODO",
+                      label: "Today's Sessions",
+                      value: todaySessionStats.today,
+                      sub: todaySessionStats.trend,
                       color: "text-ad-up",
-                      real: false,
+                      tab: "analytics" as Filter,
                     },
                     {
                       label: "Staff hours saved",
-                      value: `${MOCK_HOURS_SAVED}h`,
-                      sub: "This month · TODO",
+                      value: `${staffHoursSaved}h`,
+                      sub: `This month · ${MINS_PER_INQUIRY} min per inquiry`,
                       color: "text-ad-warn",
-                      real: false,
-                    },
-                    {
-                      label: "Satisfaction",
-                      value: `${MOCK_SATISFACTION}%`,
-                      sub: "Helpful feedback · TODO",
-                      color: "text-blue-300",
-                      real: false,
+                      tab: "analytics" as Filter,
                     },
                   ].map((card) => (
-                    <div key={card.label} className="rounded-xl border border-white/7 bg-ad-surface px-6 py-5 shadow-sm">
+                    <button
+                      key={card.label}
+                      type="button"
+                      onClick={() => navigateTo(card.tab)}
+                      className="group rounded-xl border border-white/7 bg-ad-surface px-6 py-5 shadow-sm text-left transition hover:border-ad-accent/40 hover:bg-ad-raised"
+                    >
                       <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-muted">{card.label}</p>
                       <p className={`mt-2 text-3xl font-bold ${card.color}`}>{card.value}</p>
                       <p className="mt-1 text-[10px] text-ad-muted">{card.sub}</p>
-                    </div>
+                    </button>
                   ))}
                 </div>
 
@@ -1418,7 +1591,7 @@ export default function AdminConsolePage() {
                         ))}
                         <button
                           type="button"
-                          onClick={() => setFilter("analytics")}
+                          onClick={() => navigateTo("analytics")}
                           className="mt-2 w-full rounded-lg border border-white/7 py-2 text-xs font-semibold text-ad-muted transition hover:bg-white/6"
                         >
                           View full analytics →
@@ -1429,21 +1602,44 @@ export default function AdminConsolePage() {
 
                   {/* Top topics */}
                   <div className="rounded-xl border border-white/7 bg-ad-surface p-6 shadow-sm">
-                    <p className="mb-1 text-sm font-bold text-ad-text">Top topics</p>
-                    <p className="mb-5 text-[10px] text-ad-muted">TODO: real topic classification</p>
-                    <div className="space-y-3">
-                      {MOCK_TOP_TOPICS.map((topic) => (
-                        <div key={topic.label}>
-                          <div className="mb-1 flex items-center justify-between gap-2">
-                            <span className="text-xs font-semibold text-ad-text">{topic.label}</span>
-                            <span className="text-[10px] text-ad-muted">{topic.pct}%</span>
-                          </div>
-                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/8">
-                            <div className="h-full rounded-full bg-ad-accent2" style={{ width: `${topic.pct}%` }} />
-                          </div>
-                        </div>
-                      ))}
+                    <div className="mb-5 flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-bold text-ad-text">Top topics</p>
+                        <p className="mt-0.5 text-[10px] text-ad-muted">
+                          {topTopics.length > 0 ? "Based on real conversation data · click to filter" : "No conversation data yet"}
+                        </p>
+                      </div>
+                      {topTopics.length > 0 && (
+                        <span className="shrink-0 rounded-full bg-white/6 px-2 py-0.5 text-[10px] font-bold text-ad-muted">
+                          {topTopics.reduce((s, t) => s + t.count, 0)} convs
+                        </span>
+                      )}
                     </div>
+                    {topTopics.length === 0 ? (
+                      <p className="py-6 text-center text-xs text-ad-muted">Start chatting to see topic trends here.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {topTopics.map((topic) => (
+                          <button
+                            key={topic.label}
+                            type="button"
+                            onClick={() => {
+                              setActiveTopicFilter({ label: topic.label, keywords: topic.keywords })
+                              navigateTo("history")
+                            }}
+                            className="group w-full text-left"
+                          >
+                            <div className="mb-1 flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-ad-text transition group-hover:text-ad-accent2">{topic.label}</span>
+                              <span className="text-[10px] text-ad-muted">{topic.pct}% · {topic.count}</span>
+                            </div>
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/8">
+                              <div className="h-full rounded-full bg-ad-accent2 transition-all group-hover:bg-ad-accent" style={{ width: `${topic.pct}%` }} />
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1452,7 +1648,7 @@ export default function AdminConsolePage() {
                   {/* 14-day conversations bar chart */}
                   <div className="rounded-xl border border-white/7 bg-ad-surface p-6 shadow-sm">
                     <p className="mb-1 text-sm font-bold text-ad-text">Conversations · last 14 days</p>
-                    <p className="mb-5 text-[10px] text-ad-muted">Unique conversations per day from chat history</p>
+                    <p className="mb-5 text-[10px] text-ad-muted">Unique conversations per day · click a bar to view chats</p>
                     {conversationChart.every((d) => d.count === 0) ? (
                       <p className="py-8 text-center text-xs text-ad-muted">No conversation data yet.</p>
                     ) : (() => {
@@ -1492,17 +1688,31 @@ export default function AdminConsolePage() {
                             <div className="flex items-end gap-1 pb-5" style={{ height: BAR_H + 20 }}>
                               {conversationChart.map((day) => {
                                 const barH = Math.max(day.count > 0 ? 3 : 0, (day.count / max) * BAR_H)
+                                const isClickable = day.count > 0
                                 return (
-                                  <div key={day.date} className="group relative flex flex-1 flex-col items-center">
+                                  <button
+                                    key={day.date}
+                                    type="button"
+                                    disabled={!isClickable}
+                                    onClick={() => {
+                                      if (!isClickable) return
+                                      setActiveDateFilter(day.date)
+                                      setActiveTopicFilter(null)
+                                      navigateTo("history")
+                                    }}
+                                    className={`group relative flex flex-1 flex-col items-center ${isClickable ? "cursor-pointer" : "cursor-default"}`}
+                                  >
                                     <div
-                                      className="w-full rounded-t-sm bg-ad-accent2 transition-all group-hover:bg-ad-accent"
+                                      className={`w-full rounded-t-sm transition-all ${isClickable ? "bg-ad-accent2 group-hover:bg-ad-accent" : "bg-white/10"}`}
                                       style={{ height: `${barH}px` }}
                                     />
-                                    <span className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-950 px-1.5 py-0.5 text-[9px] font-bold text-white opacity-0 shadow transition-opacity group-hover:opacity-100">
-                                      {day.count}
-                                    </span>
+                                    {isClickable && (
+                                      <span className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-950 px-1.5 py-0.5 text-[9px] font-bold text-white opacity-0 shadow transition-opacity group-hover:opacity-100">
+                                        {day.count} chat{day.count !== 1 ? "s" : ""}
+                                      </span>
+                                    )}
                                     <span className="mt-1 text-[8px] text-ad-muted">{day.label.split(" ")[1]}</span>
-                                  </div>
+                                  </button>
                                 )
                               })}
                             </div>
@@ -1630,17 +1840,16 @@ export default function AdminConsolePage() {
                         <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
                           Yearly Summary — {analyticsData.year}
                         </p>
-                        <div className="mb-8 grid gap-4 sm:grid-cols-5">
+                        <div className="mb-8 grid gap-4 sm:grid-cols-4">
                           {[
-                            { label: "Conversations",  value: analyticsData.totals.conversations, conf: "all" as ConfidenceFilter, type: "all"       as TypeFilter },
-                            { label: "Questions",      value: analyticsData.totals.questions,     conf: "all" as ConfidenceFilter, type: "all"       as TypeFilter },
-                            { label: "High Confidence",value: analyticsData.totals.high,          conf: "high" as ConfidenceFilter,type: "all"       as TypeFilter },
-                            { label: "Low Confidence", value: analyticsData.totals.low,           conf: "low"  as ConfidenceFilter,type: "all"       as TypeFilter },
-                            { label: "Escalations",    value: analyticsData.totals.escalations,   conf: "all" as ConfidenceFilter, type: "escalated" as TypeFilter },
+                            { label: "Conversations",  value: analyticsData.totals.conversations, conf: "all" as ConfidenceFilter, type: "all" as TypeFilter },
+                            { label: "Questions",      value: analyticsData.totals.questions,     conf: "all" as ConfidenceFilter, type: "all" as TypeFilter },
+                            { label: "High Confidence",value: analyticsData.totals.high,          conf: "high" as ConfidenceFilter,type: "all" as TypeFilter },
+                            { label: "Low Confidence", value: analyticsData.totals.low,           conf: "low"  as ConfidenceFilter,type: "all" as TypeFilter },
                           ].map((item) => (
                             <button
                               key={item.label}
-                              onClick={() => { setFilter("history"); setConfidenceFilter(item.conf); setTypeFilter(item.type); }}
+                              onClick={() => { navigateTo("history"); setConfidenceFilter(item.conf); setTypeFilter(item.type); }}
                               className="group rounded-lg border border-white/7 bg-ad-raised px-6 py-5 text-left transition hover:border-ad-accent/40 hover:bg-ad-surface hover:shadow-sm"
                             >
                               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">{item.label}</p>
@@ -1663,7 +1872,6 @@ export default function AdminConsolePage() {
                                 <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Questions</th>
                                 <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">High</th>
                                 <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Low</th>
-                                <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Escalations</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1678,9 +1886,6 @@ export default function AdminConsolePage() {
                                   <td className="px-4 py-3 text-right">
                                     <span className={row.low > 0 ? "font-semibold text-ad-warn" : "text-[#3e3e3e]"}>{row.low}</span>
                                   </td>
-                                  <td className="px-4 py-3 text-right">
-                                    <span className={row.escalations > 0 ? "font-semibold text-ad-danger" : "text-[#3e3e3e]"}>{row.escalations}</span>
-                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1691,7 +1896,6 @@ export default function AdminConsolePage() {
                                 <td className="px-4 py-3 text-right font-bold text-[#e0e0e0]">{analyticsData.totals.questions}</td>
                                 <td className="px-4 py-3 text-right font-bold text-emerald-300">{analyticsData.totals.high}</td>
                                 <td className="px-4 py-3 text-right font-bold text-ad-warn">{analyticsData.totals.low}</td>
-                                <td className="px-4 py-3 text-right font-bold text-ad-danger">{analyticsData.totals.escalations}</td>
                               </tr>
                             </tfoot>
                           </table>
@@ -1720,17 +1924,16 @@ export default function AdminConsolePage() {
                             <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
                               Monthly Summary — {monthlyDetail.label}
                             </p>
-                            <div className="mb-8 grid gap-4 sm:grid-cols-5">
+                            <div className="mb-8 grid gap-4 sm:grid-cols-4">
                               {[
-                                { label: "Conversations",  value: monthlyDetail.totals.conversations, conf: "all" as ConfidenceFilter, type: "all"       as TypeFilter },
-                                { label: "Questions",      value: monthlyDetail.totals.questions,     conf: "all" as ConfidenceFilter, type: "all"       as TypeFilter },
-                                { label: "High Confidence",value: monthlyDetail.totals.high,          conf: "high" as ConfidenceFilter,type: "all"       as TypeFilter },
-                                { label: "Low Confidence", value: monthlyDetail.totals.low,           conf: "low"  as ConfidenceFilter,type: "all"       as TypeFilter },
-                                { label: "Escalations",    value: monthlyDetail.totals.escalations,   conf: "all" as ConfidenceFilter, type: "escalated" as TypeFilter },
+                                { label: "Conversations",  value: monthlyDetail.totals.conversations, conf: "all" as ConfidenceFilter, type: "all" as TypeFilter },
+                                { label: "Questions",      value: monthlyDetail.totals.questions,     conf: "all" as ConfidenceFilter, type: "all" as TypeFilter },
+                                { label: "High Confidence",value: monthlyDetail.totals.high,          conf: "high" as ConfidenceFilter,type: "all" as TypeFilter },
+                                { label: "Low Confidence", value: monthlyDetail.totals.low,           conf: "low"  as ConfidenceFilter,type: "all" as TypeFilter },
                               ].map((item) => (
                                 <button
                                   key={item.label}
-                                  onClick={() => { setFilter("history"); setConfidenceFilter(item.conf); setTypeFilter(item.type); }}
+                                  onClick={() => { navigateTo("history"); setConfidenceFilter(item.conf); setTypeFilter(item.type); }}
                                   className="group rounded-lg border border-white/7 bg-ad-raised px-6 py-5 text-left transition hover:border-ad-accent/40 hover:bg-ad-surface hover:shadow-sm"
                                 >
                                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">{item.label}</p>
@@ -1752,11 +1955,10 @@ export default function AdminConsolePage() {
                                     <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Questions</th>
                                     <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">High</th>
                                     <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Low</th>
-                                    <th className="px-4 py-3 text-right text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">Escalations</th>
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {monthlyDetail.days.filter((d) => d.questions > 0 || d.escalations > 0).map((d) => (
+                                  {monthlyDetail.days.filter((d) => d.questions > 0).map((d) => (
                                     <tr key={d.date} className="border-b border-white/5 last:border-0">
                                       <td className="px-4 py-3 font-semibold text-[#e0e0e0]">{d.label}</td>
                                       <td className="px-4 py-3 text-right text-[#c4c4c4]">{d.conversations}</td>
@@ -1767,14 +1969,11 @@ export default function AdminConsolePage() {
                                       <td className="px-4 py-3 text-right">
                                         <span className={d.low > 0 ? "font-semibold text-ad-warn" : "text-[#3e3e3e]"}>{d.low}</span>
                                       </td>
-                                      <td className="px-4 py-3 text-right">
-                                        <span className={d.escalations > 0 ? "font-semibold text-ad-danger" : "text-[#3e3e3e]"}>{d.escalations}</span>
-                                      </td>
                                     </tr>
                                   ))}
-                                  {monthlyDetail.days.filter((d) => d.questions > 0 || d.escalations > 0).length === 0 && (
+                                  {monthlyDetail.days.filter((d) => d.questions > 0).length === 0 && (
                                     <tr>
-                                      <td colSpan={6} className="px-4 py-10 text-center text-ad-dim">No activity recorded this month.</td>
+                                      <td colSpan={5} className="px-4 py-10 text-center text-ad-dim">No activity recorded this month.</td>
                                     </tr>
                                   )}
                                 </tbody>
@@ -1785,7 +1984,6 @@ export default function AdminConsolePage() {
                                     <td className="px-4 py-3 text-right font-bold text-[#e0e0e0]">{monthlyDetail.totals.questions}</td>
                                     <td className="px-4 py-3 text-right font-bold text-emerald-300">{monthlyDetail.totals.high}</td>
                                     <td className="px-4 py-3 text-right font-bold text-ad-warn">{monthlyDetail.totals.low}</td>
-                                    <td className="px-4 py-3 text-right font-bold text-ad-danger">{monthlyDetail.totals.escalations}</td>
                                   </tr>
                                 </tfoot>
                               </table>
@@ -1898,6 +2096,29 @@ export default function AdminConsolePage() {
                         </span>
                       </div>
                       <div className="relative mt-4">
+                        {(activeTopicFilter || activeDateFilter) && (
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            {activeTopicFilter && (
+                              <span className="flex items-center gap-1.5 rounded-full border border-ad-accent2/40 bg-ad-accent2/15 px-3 py-1 text-xs font-semibold text-ad-accent2">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                                  <path d="M3.75 2a.75.75 0 0 0-.75.75v.423a3.001 3.001 0 0 0 .345 5.535L4.5 10.5V13a.75.75 0 0 0 1.5 0v-2.5L7.155 8.708A3.001 3.001 0 0 0 7.5 3.173V2.75A.75.75 0 0 0 6.75 2h-3Z" />
+                                  <path d="M9.25 2a.75.75 0 0 0-.75.75v.423a3.001 3.001 0 0 0 .345 5.535L10 10.5V13a.75.75 0 0 0 1.5 0v-2.5l1.155-1.792A3.001 3.001 0 0 0 13 3.173V2.75a.75.75 0 0 0-.75-.75h-3Z" />
+                                </svg>
+                                Topic: {activeTopicFilter.label}
+                                <button type="button" onClick={() => setActiveTopicFilter(null)} className="ml-1 opacity-60 hover:opacity-100">×</button>
+                              </span>
+                            )}
+                            {activeDateFilter && (
+                              <span className="flex items-center gap-1.5 rounded-full border border-blue-500/40 bg-blue-500/15 px-3 py-1 text-xs font-semibold text-blue-300">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                                  <path fillRule="evenodd" d="M4 1.75a.75.75 0 0 1 1.5 0V3h5V1.75a.75.75 0 0 1 1.5 0V3h.25A2.75 2.75 0 0 1 15 5.75v7.5A2.75 2.75 0 0 1 12.25 16H3.75A2.75 2.75 0 0 1 1 13.25v-7.5A2.75 2.75 0 0 1 3.75 3H4V1.75ZM3.75 4.5c-.69 0-1.25.56-1.25 1.25v1h11v-1c0-.69-.56-1.25-1.25-1.25H3.75ZM2.5 8.25v5c0 .69.56 1.25 1.25 1.25h8.5c.69 0 1.25-.56 1.25-1.25v-5h-11Z" clipRule="evenodd" />
+                                </svg>
+                                {new Date(activeDateFilter + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                                <button type="button" onClick={() => setActiveDateFilter(null)} className="ml-1 opacity-60 hover:opacity-100">×</button>
+                              </span>
+                            )}
+                          </div>
+                        )}
                         <div className="flex items-center gap-3">
                           <label className="min-w-0 flex-1">
                             <span className="sr-only">Search conversations</span>
@@ -2023,8 +2244,8 @@ export default function AdminConsolePage() {
                             {group.conversations.map((conversation) => {
                               const selected = selectedHistoryConversation?.conversationId === conversation.conversationId
                               return (
+                                <div key={conversation.conversationId} className="group/conv relative">
                                 <button
-                                  key={conversation.conversationId}
                                   type="button"
                                   onClick={() => setSelectedHistoryConversationId(conversation.conversationId)}
                                   className={`block w-full rounded-lg px-5 py-5 text-left transition ${
@@ -2062,12 +2283,15 @@ export default function AdminConsolePage() {
                                       <span className="rounded-full bg-white/8 px-2 py-1 text-[10px] font-bold text-ad-muted">
                                         {conversation.total} Q
                                       </span>
-                                      <span className="rounded-full bg-emerald-900/20 px-2 py-1 text-[10px] font-bold text-emerald-300">
-                                        {conversation.highCount} high
-                                      </span>
-                                      <span className="rounded-full bg-ad-warn/15 px-2 py-1 text-[10px] font-bold text-ad-warn">
-                                        {conversation.lowCount} low
-                                      </span>
+                                      {conversation.lowCount > 0 ? (
+                                        <span className="rounded-full bg-ad-warn/15 px-2 py-1 text-[10px] font-bold text-ad-warn">
+                                          Low confidence
+                                        </span>
+                                      ) : conversation.highCount > 0 ? (
+                                        <span className="rounded-full bg-emerald-900/20 px-2 py-1 text-[10px] font-bold text-emerald-300">
+                                          High confidence
+                                        </span>
+                                      ) : null}
                                       {selected && (
                                         <span className="rounded-full bg-[#9E1B34]/10 px-2 py-1 text-[10px] font-bold text-[#9E1B34]">
                                           Open
@@ -2076,6 +2300,20 @@ export default function AdminConsolePage() {
                                     </div>
                                   </div>
                                 </button>
+                                <div className="hidden border-t border-white/5 group-hover/conv:flex">
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteConversation(conversation.conversationId)}
+                                    disabled={deletingConvId === conversation.conversationId}
+                                    className="flex w-full items-center justify-center gap-1.5 rounded-b-lg px-4 py-2 text-[11px] font-medium text-ad-muted transition hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                                      <path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5ZM6.05 6a.75.75 0 0 1 .787.713l.275 5.5a.75.75 0 0 1-1.498.075l-.275-5.5A.75.75 0 0 1 6.05 6Zm3.9 0a.75.75 0 0 1 .712.787l-.275 5.5a.75.75 0 0 1-1.498-.075l.275-5.5a.75.75 0 0 1 .786-.712Z" clipRule="evenodd" />
+                                    </svg>
+                                    {deletingConvId === conversation.conversationId ? "Moving…" : "Move to trash"}
+                                  </button>
+                                </div>
+                                </div>
                               )
                             })}
                           </div>
@@ -2104,12 +2342,15 @@ export default function AdminConsolePage() {
                               <span className="rounded-full border border-white/7 bg-ad-raised px-3 py-1 text-xs font-bold text-ad-muted">
                                 {selectedHistoryConversation.total} questions
                               </span>
-                              <span className="rounded-full border border-ad-warn/30 bg-ad-warn/15 px-3 py-1 text-xs font-bold text-ad-warn">
-                                {selectedHistoryConversation.lowCount} low
-                              </span>
-                              <span className="rounded-full border border-emerald-700/40 bg-emerald-900/20 px-3 py-1 text-xs font-bold text-emerald-300">
-                                {selectedHistoryConversation.highCount} high
-                              </span>
+                              {selectedHistoryConversation.lowCount > 0 ? (
+                                <span className="rounded-full border border-ad-warn/30 bg-ad-warn/15 px-3 py-1 text-xs font-bold text-ad-warn">
+                                  Low confidence
+                                </span>
+                              ) : selectedHistoryConversation.highCount > 0 ? (
+                                <span className="rounded-full border border-emerald-700/40 bg-emerald-900/20 px-3 py-1 text-xs font-bold text-emerald-300">
+                                  High confidence
+                                </span>
+                              ) : null}
                               {selectedHistoryConversation.hasLiveSupport && (
                                 <span className="rounded-full border border-blue-700/40 bg-blue-900/20 px-3 py-1 text-xs font-bold text-blue-300">
                                   Advisor: {selectedHistoryConversation.agentNames.join(", ")}
@@ -2271,7 +2512,7 @@ export default function AdminConsolePage() {
                           type="button"
                           onClick={() => {
                             setSelectedHistoryConversationId(gap.conversationId)
-                            setFilter("history" as Filter)
+                            navigateTo("history")
                           }}
                           className="shrink-0 rounded-lg border border-white/7 bg-ad-surface px-3 py-2 text-xs font-semibold text-ad-muted transition hover:bg-white/6 hover:text-white"
                         >
@@ -2282,7 +2523,7 @@ export default function AdminConsolePage() {
                   ))
                 )}
               </div>
-            ) : visibleRequests.length === 0 ? (
+            ) : isTrashView ? null : visibleRequests.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-lg border border-white/7 bg-ad-surface py-20 text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/8">
                   {isTrashView ? (
@@ -2649,5 +2890,13 @@ export default function AdminConsolePage() {
         </section>
       </div>
     </main>
+  )
+}
+
+export default function AdminConsolePage() {
+  return (
+    <Suspense>
+      <AdminConsolePageInner />
+    </Suspense>
   )
 }

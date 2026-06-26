@@ -404,6 +404,12 @@ export default function Page() {
     if (!trimmed || isLoading) return
 
     setInput("")
+
+    if (viewMode === "intro") {
+      await handleStartFromIntro(trimmed)
+      return
+    }
+
     if (studentTypingRef.current) {
       studentTypingRef.current = false
       void updateStudentTyping(false, "")
@@ -468,7 +474,7 @@ export default function Page() {
       conversationTitle,
       history: messagesRef.current
         .filter((m) => m.role === "user" || m.role === "assistant")
-        .slice(-6)
+        .slice(-12)
         .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     })
 
@@ -751,43 +757,39 @@ export default function Page() {
           {viewMode === "intro" && (
             <IntroScreen
               onStart={handleStartFromIntro}
-              onLiveSupport={handleLiveSupportFromIntro}
-              liveSupportLabel={supportAvailability.label}
-              liveSupportNote={uiText.supportHoursNote}
               uiText={uiText}
             />
           )}
 
           {/* ── Active conversation ── */}
           {viewMode === "chat" && (
-            <>
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col overflow-hidden px-6 py-2 md:px-10">
-                  <ChatWindow
-                    messages={messages}
-                    isLoading={isLoading}
-                    error={error ?? null}
-                    supportRequestId={supportRequestId}
-                    adminTyping={adminTyping}
-                    conversationId={activeConversationId}
-                    onSpeakToHuman={() => handleSpeakToHuman()}
-                    onFollowUp={(question) => void sendQuestion(question)}
-                    uiText={uiText}
-                  />
-                </div>
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col overflow-hidden px-6 py-2 md:px-10">
+                <ChatWindow
+                  messages={messages}
+                  isLoading={isLoading}
+                  error={error ?? null}
+                  supportRequestId={supportRequestId}
+                  adminTyping={adminTyping}
+                  conversationId={activeConversationId}
+                  onSpeakToHuman={() => handleSpeakToHuman()}
+                  onFollowUp={(question) => void sendQuestion(question)}
+                  uiText={uiText}
+                />
               </div>
-
-              <ChatInput
-                value={input}
-                onChange={handleInputChange}
-                onSubmit={handleChatSend}
-                onStop={stop}
-                isLoading={isLoading}
-                showPrivacyReminder={Boolean(supportRequestId)}
-                uiText={uiText}
-              />
-            </>
+            </div>
           )}
+
+          {/* ── Input — always visible ── */}
+          <ChatInput
+            value={input}
+            onChange={handleInputChange}
+            onSubmit={handleChatSend}
+            onStop={stop}
+            isLoading={isLoading}
+            showPrivacyReminder={Boolean(supportRequestId)}
+            uiText={uiText}
+          />
         </section>
       </div>
     </main>

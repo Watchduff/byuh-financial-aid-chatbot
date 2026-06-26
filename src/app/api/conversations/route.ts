@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { cookies } from "next/headers"
-import { eq, desc } from "drizzle-orm"
+import { eq, desc, isNull, and } from "drizzle-orm"
 import { db } from "@/db/index"
 import { conversations } from "@/db/schema"
 import { getOrCreateSession } from "@/lib/session"
@@ -16,7 +16,7 @@ export async function GET() {
   const rows = await db
     .select()
     .from(conversations)
-    .where(eq(conversations.sessionId, sessionId))
+    .where(and(eq(conversations.sessionId, sessionId), isNull(conversations.deletedAt)))
     .orderBy(desc(conversations.updatedAt))
 
   return Response.json({ conversations: rows })

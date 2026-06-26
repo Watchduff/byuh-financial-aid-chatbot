@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm"
+import { asc, desc, eq, isNull } from "drizzle-orm"
 import { db } from "@/db/index"
 import { agentMessages, chatMessages, conversations, supportRequests } from "@/db/schema"
 
@@ -35,6 +35,7 @@ export async function GET() {
     const conversationRows = await db
       .select()
       .from(conversations)
+      .where(isNull(conversations.deletedAt))
       .orderBy(desc(conversations.updatedAt))
 
     const entries = await Promise.all(
@@ -110,22 +111,12 @@ export async function GET() {
         })
     )
 
-    return Response.json(
-      {
-        history: entries
-          .flat()
-          .sort((a, b) => new Date(b.questionAt).getTime() - new Date(a.questionAt).getTime()),
-        agentReplies: agentRepliesByConversation,
-      },
-      {
-        headers: {
-          // Cache in the browser for 30s; serve stale for up to 60s while
-          // revalidating in the background. Chat history is read-only historical
-          // data — 30s staleness is acceptable and cuts DB load by ~10×.
-          "Cache-Control": "private, max-age=30, stale-while-revalidate=60",
-        },
-      }
-    )
+    return Response.json({
+      history: entries
+        .flat()
+        .sort((a, b) => new Date(b.questionAt).getTime() - new Date(a.questionAt).getTime()),
+      agentReplies: agentRepliesByConversation,
+    })
   } catch (error) {
     console.error("[support/chat-history] Error:", error)
     return Response.json({ error: "Failed to fetch chat history" }, { status: 500 })

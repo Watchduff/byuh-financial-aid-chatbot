@@ -64,6 +64,8 @@ const SEED_URLS = [
   "https://financialaid.byuh.edu/forms-for-download",
   "https://financialaid.byuh.edu/fin-authorization",
   "https://financialaid.byuh.edu/contact-us",
+  // Cost of Attendance PDFs — pinned so new academic year data is always ingested
+  "https://financialaid.byuh.edu/COA_2026.2027",
 ]
 
 // 5 concurrent embedding requests — safe default for OpenAI rate limits

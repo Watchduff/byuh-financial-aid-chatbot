@@ -58,6 +58,7 @@ export const conversations = pgTable("conversations", {
   title: text("title").notNull().default("New Conversation"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
 })
 
 // chat_messages — individual turns in a conversation

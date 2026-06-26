@@ -55,8 +55,13 @@ async function migrate() {
       session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
       title TEXT NOT NULL DEFAULT 'New Conversation',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      deleted_at TIMESTAMPTZ
     )
+  `
+
+  await sql`
+    ALTER TABLE conversations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ
   `
 
   await sql`
