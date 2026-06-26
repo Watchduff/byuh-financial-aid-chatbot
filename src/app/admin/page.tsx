@@ -46,17 +46,8 @@ type ChatHistoryEntry = {
   sources: string[]
 }
 
-type Filter = "overview" | "pending" | "answered" | "all" | "trash" | "history" | "analytics" | "knowledge-gaps"
+type Filter = "overview" | "pending" | "answered" | "all" | "trash" | "history" | "analytics"
 
-type KnowledgeGap = {
-  question: string
-  count: number
-  lastAskedAt: string
-  confidence: "high" | "low" | null
-  sources: string[]
-  reason: string
-  conversationId: string
-}
 type ConfidenceFilter = "all" | "high" | "low"
 type TypeFilter = "all" | "bot-only" | "escalated"
 type HistoryGroupBy = "day" | "month"
@@ -108,14 +99,9 @@ const ANALYTICS_FILTER = {
 const OVERVIEW_FILTER = {
   id: "overview" as const,
   label: "Overview",
-  description: "At-a-glance summary of conversations, knowledge gaps, and live support",
+  description: "At-a-glance summary of conversations and usage trends",
 }
 
-const KNOWLEDGE_GAPS_FILTER = {
-  id: "knowledge-gaps" as const,
-  label: "Knowledge Gaps",
-  description: "Questions the bot answered with low confidence or no matching source",
-}
 
 type AnalyticsMonth = {
   month: string
@@ -204,7 +190,7 @@ function deletedCategory(request: SupportRequest) {
 }
 
 
-const VALID_FILTERS: Filter[] = ["overview", "trash", "history", "analytics", "knowledge-gaps"]
+const VALID_FILTERS: Filter[] = ["overview", "trash", "history", "analytics"]
 
 function AdminConsolePageInner() {
   const adminName = "Financial Aid Advisor"
@@ -262,8 +248,6 @@ function AdminConsolePageInner() {
   const [monthlyDetail, setMonthlyDetail] = useState<MonthlyDetail | null>(null)
   const [monthlyDetailLoading, setMonthlyDetailLoading] = useState(false)
   const [feedbackStats, setFeedbackStats] = useState<{ totals: { helpful: number; notHelpful: number; total: number }; recent: Array<{ id: number; question: string; answer: string; reason: string | null; comment: string | null; createdAt: string }> } | null>(null)
-  const [knowledgeGaps, setKnowledgeGaps] = useState<KnowledgeGap[]>([])
-  const [knowledgeGapsLoading, setKnowledgeGapsLoading] = useState(false)
   const [darkMode, setDarkMode] = useState(true)
 
   type DeletedConversation = {
@@ -348,25 +332,6 @@ function AdminConsolePageInner() {
   useEffect(() => {
     if (filter === "analytics") fetchAnalytics(analyticsYear)
   }, [filter, analyticsYear, fetchAnalytics])
-
-  const fetchKnowledgeGaps = useCallback(async () => {
-    setKnowledgeGapsLoading(true)
-    try {
-      const res = await fetch("/api/knowledge-gaps")
-      if (res.ok) {
-        const data = await res.json()
-        setKnowledgeGaps(data.gaps ?? [])
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setKnowledgeGapsLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (filter === "knowledge-gaps" || filter === "overview") fetchKnowledgeGaps()
-  }, [filter, fetchKnowledgeGaps])
 
   const fetchFeedbackStats = useCallback(async () => {
     try {
@@ -684,14 +649,11 @@ function AdminConsolePageInner() {
         ? HISTORY_FILTER
         : filter === "analytics"
           ? ANALYTICS_FILTER
-          : filter === "knowledge-gaps"
-            ? KNOWLEDGE_GAPS_FILTER
-            : FILTER_OPTIONS.find((option) => option.id === filter) ?? FILTER_OPTIONS[0]
+          : FILTER_OPTIONS.find((option) => option.id === filter) ?? FILTER_OPTIONS[0]
   const isOverviewView = filter === "overview"
   const isTrashView = filter === "trash"
   const isHistoryView = filter === "history"
   const isAnalyticsView = filter === "analytics"
-  const isKnowledgeGapsView = filter === "knowledge-gaps"
 
   // Hawaii is UTC-10 and never observes DST
   function toHawaiiDateString(utcStr: string): string {
@@ -1229,15 +1191,6 @@ function AdminConsolePageInner() {
                 ),
               },
               {
-                label: "Knowledge Gaps",
-                count: knowledgeGaps.length,
-                active: isKnowledgeGapsView,
-                onClick: () => navigateTo("knowledge-gaps"),
-                icon: (
-                  <path d="M10 1a6 6 0 0 0-3.815 10.631C7.237 12.5 8 13.443 8 14.456v.644a.75.75 0 0 0 .572.729 6.016 6.016 0 0 0 2.856 0A.75.75 0 0 0 12 15.1v-.644c0-1.013.762-1.957 3.815-2.825A6 6 0 0 0 10 1ZM9.5 16.25a.75.75 0 0 0 0 1.5h1a.75.75 0 0 0 0-1.5h-1Z" />
-                ),
-              },
-              {
                 label: "Analytics",
                 count: analyticsData?.totals.questions ?? 0,
                 active: isAnalyticsView,
@@ -1330,7 +1283,7 @@ function AdminConsolePageInner() {
               </button>
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-xl font-bold text-ad-text md:text-2xl">
-                  {isOverviewView ? "Overview" : isHistoryView ? "Chat History" : isAnalyticsView ? "Analytics" : isTrashView ? "Trash Bin" : isKnowledgeGapsView ? "Knowledge Gaps" : "Live Support"}
+                  {isOverviewView ? "Overview" : isHistoryView ? "Chat History" : isAnalyticsView ? "Analytics" : isTrashView ? "Trash Bin" : "Live Support"}
                 </h2>
                 <p className="mt-1 text-sm text-[#787878]">{activeFilter.description}</p>
               </div>
@@ -1354,17 +1307,17 @@ function AdminConsolePageInner() {
 
               <div className="hidden rounded-lg border border-white/7 bg-ad-surface px-3 py-2 text-right shadow-sm sm:block">
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">
-                  {isOverviewView ? "Chats" : isHistoryView ? "Questions" : isAnalyticsView ? "Questions" : isKnowledgeGapsView ? "Gaps" : "Visible"}
+                  {isOverviewView ? "Chats" : isHistoryView ? "Questions" : isAnalyticsView ? "Questions" : "Visible"}
                 </p>
                 <p className="text-lg font-bold text-[#9E1B34]">
-                  {isOverviewView ? historyCounts.conversations : isHistoryView ? filteredQuestionsCount : isAnalyticsView ? (analyticsData?.totals.questions ?? "—") : isKnowledgeGapsView ? knowledgeGaps.length : visibleRequests.length}
+                  {isOverviewView ? historyCounts.conversations : isHistoryView ? filteredQuestionsCount : isAnalyticsView ? (analyticsData?.totals.questions ?? "—") : visibleRequests.length}
                 </p>
               </div>
             </div>
           </header>
 
           <div className={`relative mx-auto px-4 py-6 md:px-6 ${isHistoryView ? "max-w-none" : "max-w-6xl"}`}>
-            {!isHistoryView && !isAnalyticsView && !isTrashView && !isKnowledgeGapsView && !isOverviewView && (
+            {!isHistoryView && !isAnalyticsView && !isTrashView && !isOverviewView && (
               <div className="mb-5 flex gap-2">
                 {([
                   { id: "pending" as const, label: "Pending", count: counts.pending },
@@ -1392,7 +1345,7 @@ function AdminConsolePageInner() {
               </div>
             )}
 
-            {!isHistoryView && !isAnalyticsView && !isKnowledgeGapsView && !isOverviewView && (
+            {!isHistoryView && !isAnalyticsView && !isOverviewView && (
               <div className="mb-6 flex items-start gap-3 rounded-lg border border-white/7 bg-ad-raised px-6 py-5">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="mt-0.5 h-4 w-4 shrink-0 text-ad-dim">
                   <path fillRule="evenodd" d="M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Zm-7-4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM9 9a.75.75 0 0 0 0 1.5h.253a.25.25 0 0 1 .244.304l-.459 2.066A1.75 1.75 0 0 0 10.747 15H11a.75.75 0 0 0 0-1.5h-.253a.25.25 0 0 1-.244-.304l.459-2.066A1.75 1.75 0 0 0 9.253 9H9Z" clipRule="evenodd" />
@@ -2455,74 +2408,6 @@ function AdminConsolePageInner() {
                 </div>
                   )}
               </div>
-            ) : isKnowledgeGapsView ? (
-              <div className="space-y-4">
-                {knowledgeGapsLoading ? (
-                  <div className="rounded-lg border border-white/7 bg-ad-surface py-16 text-center text-sm text-ad-dim">
-                    Loading knowledge gaps…
-                  </div>
-                ) : knowledgeGaps.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center rounded-lg border border-white/7 bg-ad-surface py-20 text-center">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-900/20">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-7 w-7 text-emerald-400">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm3.857-9.809a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <p className="mt-4 text-base font-semibold text-[#c4c4c4]">No knowledge gaps found</p>
-                    <p className="mt-1 text-sm text-ad-dim">All answered questions had high confidence and a cited source.</p>
-                  </div>
-                ) : (
-                  knowledgeGaps.map((gap, index) => (
-                    <article
-                      key={index}
-                      className="rounded-lg border border-white/7 bg-ad-surface p-6 shadow-sm"
-                    >
-                      <div className="flex flex-wrap items-start gap-4">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {gap.confidence === "low" ? (
-                              <span className="rounded-full bg-ad-warn/15 px-2 py-0.5 text-[10px] font-bold text-ad-warn">
-                                Low confidence
-                              </span>
-                            ) : (
-                              <span className="rounded-full bg-white/8 px-2 py-0.5 text-[10px] font-bold text-[#787878]">
-                                No source
-                              </span>
-                            )}
-                            <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-ad-dim">
-                              Asked {gap.count}×
-                            </span>
-                            <span className="text-[10px] text-ad-dim">
-                              {formatDate(gap.lastAskedAt)}
-                            </span>
-                          </div>
-                          <p className="mt-2 text-sm font-semibold leading-6 text-[#e0e0e0]">{gap.question}</p>
-                          <p className="mt-1 text-xs text-[#787878]">{gap.reason}</p>
-                          {gap.sources.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {gap.sources.map((src) => (
-                                <span key={src} className="rounded-full border border-white/7 bg-ad-surface px-2.5 py-1 text-[11px] font-semibold text-[#787878]">
-                                  {src}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedHistoryConversationId(gap.conversationId)
-                            navigateTo("history")
-                          }}
-                          className="shrink-0 rounded-lg border border-white/7 bg-ad-surface px-3 py-2 text-xs font-semibold text-ad-muted transition hover:bg-white/6 hover:text-white"
-                        >
-                          View in History
-                        </button>
-                      </div>
-                    </article>
-                  ))
-                )}
-              </div>
             ) : isTrashView ? null : visibleRequests.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-lg border border-white/7 bg-ad-surface py-20 text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white/8">
@@ -2875,7 +2760,7 @@ function AdminConsolePageInner() {
               </div>
             )}
 
-            {!isHistoryView && !isAnalyticsView && !isTrashView && !isKnowledgeGapsView && !isOverviewView && (
+            {!isHistoryView && !isAnalyticsView && !isTrashView && !isOverviewView && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-ad-bg/75 backdrop-blur-[2px]">
                 <div className="flex flex-col items-center gap-3 rounded-xl border border-white/7 bg-ad-surface px-10 py-8 shadow-sm">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-8 w-8 text-[#3e3e3e]">
