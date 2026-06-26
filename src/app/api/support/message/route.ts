@@ -32,6 +32,8 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Not found" }, { status: 404 })
     }
 
+    const conversationId = supportRequest.conversationId as string
+
     if (supportRequest.status === "answered" || supportRequest.status === "deleted") {
       return Response.json({ error: "Support request is not active" }, { status: 409 })
     }
@@ -39,7 +41,7 @@ export async function POST(req: NextRequest) {
     const [message] = await db
       .insert(chatMessages)
       .values({
-        conversationId: supportRequest.conversationId,
+        conversationId,
         role: "user",
         content,
       })

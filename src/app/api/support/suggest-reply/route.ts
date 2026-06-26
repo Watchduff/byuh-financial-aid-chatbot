@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       ? await db
           .select()
           .from(chatMessages)
-          .where(eq(chatMessages.conversationId, supportRequest.conversationId))
+          .where(eq(chatMessages.conversationId, supportRequest.conversationId as string))
           .orderBy(asc(chatMessages.createdAt))
       : []
 

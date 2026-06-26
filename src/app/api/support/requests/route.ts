@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
           ? await db
               .select()
               .from(chatMessages)
-              .where(eq(chatMessages.conversationId, request.conversationId))
+              .where(eq(chatMessages.conversationId, request.conversationId as string))
               .orderBy(asc(chatMessages.createdAt))
           : []
 
