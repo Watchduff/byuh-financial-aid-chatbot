@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { db } from "@/db/index"
 import { messageFeedback } from "@/db/schema"
-import { desc, count, eq, sql } from "drizzle-orm"
+import { and, desc, count, eq, isNotNull, sql } from "drizzle-orm"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -57,7 +57,19 @@ export async function GET() {
       .orderBy(desc(messageFeedback.createdAt))
       .limit(20)
 
-    return Response.json({ totals, recent })
+    const helpfulConvIds = await db
+      .selectDistinct({ conversationId: messageFeedback.conversationId })
+      .from(messageFeedback)
+      .where(and(eq(messageFeedback.feedback, "helpful"), isNotNull(messageFeedback.conversationId)))
+      .then((rows) => rows.map((r) => r.conversationId).filter((id): id is string => id !== null))
+
+    const notHelpfulConvIds = await db
+      .selectDistinct({ conversationId: messageFeedback.conversationId })
+      .from(messageFeedback)
+      .where(and(eq(messageFeedback.feedback, "not-helpful"), isNotNull(messageFeedback.conversationId)))
+      .then((rows) => rows.map((r) => r.conversationId).filter((id): id is string => id !== null))
+
+    return Response.json({ totals, recent, helpfulConvIds, notHelpfulConvIds })
   } catch (error) {
     console.error("[feedback] GET Error:", error)
     return Response.json({ error: "Failed to fetch feedback" }, { status: 500 })

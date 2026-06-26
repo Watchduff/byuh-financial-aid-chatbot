@@ -240,6 +240,7 @@ function AdminConsolePageInner() {
   const replyPanelRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const prevMessageCountsRef = useRef<Record<string, number>>({})
   const prevPendingCountRef = useRef<number | null>(null)
+  const notHelpfulSectionRef = useRef<HTMLParagraphElement>(null)
   const [analyticsYear, setAnalyticsYear] = useState(new Date().getFullYear())
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
@@ -247,7 +248,8 @@ function AdminConsolePageInner() {
   const [selectedAnalyticsMonth, setSelectedAnalyticsMonth] = useState<string | null>(null)
   const [monthlyDetail, setMonthlyDetail] = useState<MonthlyDetail | null>(null)
   const [monthlyDetailLoading, setMonthlyDetailLoading] = useState(false)
-  const [feedbackStats, setFeedbackStats] = useState<{ totals: { helpful: number; notHelpful: number; total: number }; recent: Array<{ id: number; question: string; answer: string; reason: string | null; comment: string | null; createdAt: string }> } | null>(null)
+  const [feedbackStats, setFeedbackStats] = useState<{ totals: { helpful: number; notHelpful: number; total: number }; recent: Array<{ id: number; question: string; answer: string; reason: string | null; comment: string | null; createdAt: string }>; helpfulConvIds: string[]; notHelpfulConvIds: string[] } | null>(null)
+  const [feedbackFilter, setFeedbackFilter] = useState<"helpful" | "not-helpful" | null>(null)
   const [darkMode, setDarkMode] = useState(true)
 
   type DeletedConversation = {
@@ -263,6 +265,9 @@ function AdminConsolePageInner() {
   const [deletingConvId, setDeletingConvId] = useState<string | null>(null)
   const [restoringConvId, setRestoringConvId] = useState<string | null>(null)
   const [permanentDeletingConvId, setPermanentDeletingConvId] = useState<string | null>(null)
+  const [expandedTrashConvId, setExpandedTrashConvId] = useState<string | null>(null)
+  const [trashConvMessages, setTrashConvMessages] = useState<Record<string, Array<{ id: number; role: string; content: string; createdAt: string }>>>({})
+  const [loadingTrashConvId, setLoadingTrashConvId] = useState<string | null>(null)
 
   useEffect(() => {
     const stored = localStorage.getItem("admin-dark-mode")
@@ -356,6 +361,25 @@ function AdminConsolePageInner() {
   useEffect(() => {
     if (filter === "trash") fetchDeletedConversations()
   }, [filter, fetchDeletedConversations])
+
+  const toggleTrashConvMessages = useCallback(async (convId: string) => {
+    if (expandedTrashConvId === convId) {
+      setExpandedTrashConvId(null)
+      return
+    }
+    setExpandedTrashConvId(convId)
+    if (trashConvMessages[convId]) return
+    setLoadingTrashConvId(convId)
+    try {
+      const res = await fetch(`/api/admin/conversations/${convId}/messages`)
+      if (res.ok) {
+        const data = await res.json()
+        setTrashConvMessages((prev) => ({ ...prev, [convId]: data.messages ?? [] }))
+      }
+    } catch {} finally {
+      setLoadingTrashConvId(null)
+    }
+  }, [expandedTrashConvId, trashConvMessages])
 
   async function deleteConversation(id: string) {
     setDeletingConvId(id)
@@ -595,10 +619,18 @@ function AdminConsolePageInner() {
   }, [visibleChatHistory, historyAgentReplies])
 
   const filteredHistoryConversations = useMemo(() => {
-    if (typeFilter === "escalated") return historyConversations.filter((c) => c.hasLiveSupport)
-    if (typeFilter === "bot-only") return historyConversations.filter((c) => !c.hasLiveSupport)
-    return historyConversations
-  }, [historyConversations, typeFilter])
+    let result = historyConversations
+    if (typeFilter === "escalated") result = result.filter((c) => c.hasLiveSupport)
+    if (typeFilter === "bot-only") result = result.filter((c) => !c.hasLiveSupport)
+    if (feedbackFilter === "helpful") {
+      const ids = new Set(feedbackStats?.helpfulConvIds ?? [])
+      result = result.filter((c) => ids.has(c.conversationId))
+    } else if (feedbackFilter === "not-helpful") {
+      const ids = new Set(feedbackStats?.notHelpfulConvIds ?? [])
+      result = result.filter((c) => ids.has(c.conversationId))
+    }
+    return result
+  }, [historyConversations, typeFilter, feedbackFilter, feedbackStats])
 
   const filteredQuestionsCount = useMemo(() =>
     filteredHistoryConversations.reduce((sum, c) => sum + c.total, 0),
@@ -610,8 +642,9 @@ function AdminConsolePageInner() {
       confidenceFilter !== "all",
       typeFilter !== "all",
       historyGroupBy !== "day",
+      feedbackFilter !== null,
     ].filter(Boolean).length
-  }, [confidenceFilter, typeFilter, historyGroupBy])
+  }, [confidenceFilter, typeFilter, historyGroupBy, feedbackFilter])
 
   const selectedHistoryConversation = useMemo(() => {
     return filteredHistoryConversations.find((conversation) => conversation.conversationId === selectedHistoryConversationId)
@@ -1384,26 +1417,73 @@ function AdminConsolePageInner() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {deletedConversations.map((conv) => (
-                      <div key={conv.id} className="flex items-center justify-between gap-4 rounded-lg border border-white/7 bg-ad-surface px-6 py-4 shadow-sm">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-ad-text">{conv.title}</p>
-                          <p className="mt-0.5 text-[10px] text-ad-muted">
-                            {conv.messageCount} messages · Deleted {new Date(conv.deletedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                          </p>
+                    {deletedConversations.map((conv) => {
+                      const isExpanded = expandedTrashConvId === conv.id
+                      const messages = trashConvMessages[conv.id]
+                      const isLoadingMsgs = loadingTrashConvId === conv.id
+                      return (
+                        <div key={conv.id} className={`group rounded-lg border shadow-sm transition ${isExpanded ? "border-[#9E1B34]/40 bg-[#9E1B34]/5" : "border-white/7 bg-ad-surface hover:border-[#9E1B34]/40 hover:bg-[#9E1B34]/5"}`}>
+                          <div className="flex items-center justify-between gap-4 px-6 py-4">
+                            <button
+                              type="button"
+                              onClick={() => toggleTrashConvMessages(conv.id)}
+                              className="min-w-0 flex-1 text-left"
+                            >
+                              <div className="flex items-center gap-2">
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  viewBox="0 0 20 20"
+                                  fill="currentColor"
+                                  className={`h-3.5 w-3.5 shrink-0 transition-transform ${isExpanded ? "rotate-90 text-[#9E1B34]" : "text-ad-dim group-hover:text-[#9E1B34]"}`}
+                                >
+                                  <path fillRule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                                </svg>
+                                <p className={`truncate text-sm font-semibold transition ${isExpanded ? "text-[#9E1B34]" : "text-ad-text group-hover:text-[#9E1B34]"}`}>{conv.title}</p>
+                              </div>
+                              <p className="mt-0.5 pl-5 text-[10px] text-ad-muted">
+                                {conv.messageCount} messages · Deleted {new Date(conv.deletedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                              </p>
+                            </button>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => restoreConversation(conv.id)}
+                                disabled={restoringConvId === conv.id}
+                                className="rounded-lg border border-white/7 bg-ad-raised px-3 py-1.5 text-xs font-semibold text-ad-muted transition hover:bg-white/8 hover:text-ad-text disabled:opacity-50"
+                              >
+                                {restoringConvId === conv.id ? "Restoring..." : "Restore"}
+                              </button>
+                            </div>
+                          </div>
+
+                          {isExpanded && (
+                            <div className="border-t border-white/7 px-6 py-5">
+                              {isLoadingMsgs ? (
+                                <p className="py-4 text-center text-xs text-ad-dim">Loading messages...</p>
+                              ) : !messages || messages.length === 0 ? (
+                                <p className="py-4 text-center text-xs text-ad-dim">No messages found.</p>
+                              ) : (
+                                <div className="space-y-3">
+                                  {messages.map((msg) => (
+                                    <div
+                                      key={msg.id}
+                                      className={`flex gap-3 ${msg.role === "user" ? "flex-row" : "flex-row-reverse"}`}
+                                    >
+                                      <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${msg.role === "user" ? "bg-white/10 text-ad-muted" : "bg-[#9E1B34]/20 text-[#9E1B34]"}`}>
+                                        {msg.role === "user" ? "S" : "AI"}
+                                      </div>
+                                      <div className={`max-w-[75%] rounded-lg px-4 py-2.5 text-xs leading-relaxed ${msg.role === "user" ? "bg-white/6 text-ad-muted" : "bg-ad-raised text-ad-text"}`}>
+                                        {msg.content}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => restoreConversation(conv.id)}
-                            disabled={restoringConvId === conv.id}
-                            className="rounded-lg border border-white/7 bg-ad-raised px-3 py-1.5 text-xs font-semibold text-ad-muted transition hover:bg-white/8 hover:text-ad-text disabled:opacity-50"
-                          >
-                            {restoringConvId === conv.id ? "Restoring..." : "Restore"}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -1961,20 +2041,43 @@ function AdminConsolePageInner() {
                     <>
                       <div className="mb-6 grid gap-4 sm:grid-cols-3">
                         {[
-                          { label: "Helpful", value: feedbackStats.totals.helpful, color: "text-emerald-300" },
-                          { label: "Not Helpful", value: feedbackStats.totals.notHelpful, color: "text-red-600" },
-                          { label: "Total Rated", value: feedbackStats.totals.total, color: "text-[#9E1B34]" },
-                        ].map((item) => (
-                          <div key={item.label} className="rounded-lg border border-white/7 bg-ad-raised px-6 py-5">
-                            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">{item.label}</p>
-                            <p className={`mt-1 text-2xl font-bold ${item.color}`}>{item.value}</p>
-                            {feedbackStats.totals.total > 0 && (
-                              <p className="mt-0.5 text-xs text-ad-dim">
-                                {Math.round((item.value / feedbackStats.totals.total) * 100)}%
+                          { label: "Helpful", value: feedbackStats.totals.helpful, color: "text-emerald-400", hoverBorder: "hover:border-emerald-500/40 hover:bg-emerald-500/8", activeBorder: "border-emerald-500/40 bg-emerald-500/8", feedbackType: "helpful" as const, hint: "View helpful chats →" },
+                          { label: "Not Helpful", value: feedbackStats.totals.notHelpful, color: "text-red-500", hoverBorder: "hover:border-ad-danger/50 hover:bg-ad-danger/8", activeBorder: "border-ad-danger/50 bg-ad-danger/8", feedbackType: "not-helpful" as const, hint: "View not-helpful chats →" },
+                          { label: "Total Rated", value: feedbackStats.totals.total, color: "text-[#9E1B34]", feedbackType: null as null, hint: null, hoverBorder: "", activeBorder: "" },
+                        ].map((item) =>
+                          item.feedbackType ? (
+                            <button
+                              key={item.label}
+                              type="button"
+                              onClick={() => {
+                                setFeedbackFilter(item.feedbackType)
+                                navigateTo("history")
+                              }}
+                              className={`group rounded-lg border px-6 py-5 text-left transition ${item.hoverBorder} border-white/7 bg-ad-raised`}
+                            >
+                              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">{item.label}</p>
+                              <p className={`mt-1 text-2xl font-bold ${item.color}`}>{item.value}</p>
+                              {feedbackStats.totals.total > 0 && (
+                                <p className="mt-0.5 text-xs text-ad-dim">
+                                  {Math.round((item.value / feedbackStats.totals.total) * 100)}%
+                                </p>
+                              )}
+                              <p className="mt-2 text-[10px] font-semibold text-ad-muted opacity-0 transition group-hover:opacity-100">
+                                {item.hint}
                               </p>
-                            )}
-                          </div>
-                        ))}
+                            </button>
+                          ) : (
+                            <div key={item.label} className="rounded-lg border border-white/7 bg-ad-raised px-6 py-5">
+                              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">{item.label}</p>
+                              <p className={`mt-1 text-2xl font-bold ${item.color}`}>{item.value}</p>
+                              {feedbackStats.totals.total > 0 && (
+                                <p className="mt-0.5 text-xs text-ad-dim">
+                                  {Math.round((item.value / feedbackStats.totals.total) * 100)}%
+                                </p>
+                              )}
+                            </div>
+                          )
+                        )}
                       </div>
 
                       {feedbackStats.totals.total > 0 && (
@@ -1988,7 +2091,7 @@ function AdminConsolePageInner() {
 
                       {feedbackStats.recent.length > 0 && (
                         <>
-                          <p className="mb-5 text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
+                          <p ref={notHelpfulSectionRef} className="mb-5 scroll-mt-8 text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
                             Recent Not-Helpful Responses
                           </p>
                           <div className="space-y-4">
@@ -2049,7 +2152,7 @@ function AdminConsolePageInner() {
                         </span>
                       </div>
                       <div className="relative mt-4">
-                        {(activeTopicFilter || activeDateFilter) && (
+                        {(activeTopicFilter || activeDateFilter || feedbackFilter) && (
                           <div className="mb-2 flex flex-wrap items-center gap-2">
                             {activeTopicFilter && (
                               <span className="flex items-center gap-1.5 rounded-full border border-ad-accent2/40 bg-ad-accent2/15 px-3 py-1 text-xs font-semibold text-ad-accent2">
@@ -2068,6 +2171,15 @@ function AdminConsolePageInner() {
                                 </svg>
                                 {new Date(activeDateFilter + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                                 <button type="button" onClick={() => setActiveDateFilter(null)} className="ml-1 opacity-60 hover:opacity-100">×</button>
+                              </span>
+                            )}
+                            {feedbackFilter && (
+                              <span className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${feedbackFilter === "helpful" ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-400" : "border-ad-danger/40 bg-ad-danger/15 text-red-400"}`}>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3">
+                                  <path d="M2 10.5a1.5 1.5 0 1 1 3 0v3.5a1.5 1.5 0 0 1-3 0v-3.5Zm5.5-8.5a1.5 1.5 0 0 1 3 0V13a1.5 1.5 0 0 1-3 0V2Zm5.5 5a1.5 1.5 0 1 1 3 0v6a1.5 1.5 0 0 1-3 0V7Z" />
+                                </svg>
+                                Feedback: {feedbackFilter === "helpful" ? "Helpful" : "Not Helpful"}
+                                <button type="button" onClick={() => setFeedbackFilter(null)} className="ml-1 opacity-60 hover:opacity-100">×</button>
                               </span>
                             )}
                           </div>
@@ -2120,6 +2232,7 @@ function AdminConsolePageInner() {
                                   setTypeFilter("all")
                                   setHistoryGroupBy("day")
                                   setHistorySearch("")
+                                  setFeedbackFilter(null)
                                 }}
                                 className="rounded-md border border-white/7 bg-ad-raised px-3 py-1.5 text-xs font-semibold text-[#787878] transition hover:bg-white/8"
                               >
