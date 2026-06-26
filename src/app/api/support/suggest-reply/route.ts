@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   return Response.json({ error: "Live support is temporarily unavailable." }, { status: 503 })
   try {
     const body = await req.json().catch(() => ({}))
-    const requestId = (body.requestId as string | undefined)?.trim()
+    const requestId: string = typeof body.requestId === "string" ? body.requestId.trim() : ""
 
     if (!requestId) {
       return Response.json({ error: "requestId is required" }, { status: 400 })

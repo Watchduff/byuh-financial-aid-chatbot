@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     const cookieStore = await cookies()
     const sessionId = await getOrCreateSession(cookieStore)
     const body = await req.json().catch(() => ({}))
-    const requestId = (body.requestId as string | undefined)?.trim()
+    const requestId: string = typeof body.requestId === "string" ? body.requestId.trim() : ""
     const messages = Array.isArray(body.messages) ? (body.messages as TranscriptMessage[]) : []
 
     if (!requestId || messages.length === 0) {

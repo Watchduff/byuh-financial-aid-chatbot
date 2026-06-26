@@ -15,8 +15,8 @@ export async function POST(req: NextRequest) {
     const cookieStore = await cookies()
     const sessionId = await getOrCreateSession(cookieStore)
     const body = await req.json().catch(() => ({}))
-    const requestId = (body.requestId as string | undefined)?.trim()
-    const content = (body.content as string | undefined)?.trim()
+    const requestId: string = typeof body.requestId === "string" ? body.requestId.trim() : ""
+    const content: string = typeof body.content === "string" ? body.content.trim() : ""
 
     if (!requestId || !content) {
       return Response.json({ error: "requestId and content are required" }, { status: 400 })

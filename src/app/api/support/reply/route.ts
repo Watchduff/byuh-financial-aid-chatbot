@@ -11,9 +11,9 @@ export async function POST(req: NextRequest) {
   return Response.json({ error: "Live support is temporarily unavailable." }, { status: 503 })
   try {
     const body = await req.json().catch(() => ({}))
-    const requestId = (body.requestId as string | undefined)?.trim()
-    const adminName = (body.adminName as string | undefined)?.trim() || "Financial Aid Advisor"
-    const content = (body.content as string | undefined)?.trim()
+    const requestId: string = typeof body.requestId === "string" ? body.requestId.trim() : ""
+    const adminName: string = typeof body.adminName === "string" && body.adminName.trim() ? body.adminName.trim() : "Financial Aid Advisor"
+    const content: string = typeof body.content === "string" ? body.content.trim() : ""
 
     if (!requestId || !content) {
       return Response.json({ error: "requestId and content are required" }, { status: 400 })
