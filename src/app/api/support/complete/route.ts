@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}))
     const requestId = (body.requestId as string | undefined)?.trim()
 
-    if (!requestId) {
+    if (typeof requestId !== "string" || requestId.length === 0) {
       return Response.json({ error: "requestId is required" }, { status: 400 })
     }
 

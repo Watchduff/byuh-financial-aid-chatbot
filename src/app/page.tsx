@@ -6,7 +6,7 @@ import Sidebar from "@/components/Sidebar"
 import IntroScreen from "@/components/IntroScreen"
 import ChatWindow from "@/components/ChatWindow"
 import ChatInput from "@/components/ChatInput"
-import { FINANCIAL_AID_CONTACT, getSupportAvailability, getClosedMessage } from "@/lib/supportHours"
+import { getSupportAvailability, getClosedMessage } from "@/lib/supportHours"
 import { generateId } from "@/lib/utils"
 import {
   DEFAULT_LANGUAGE_CODE,
@@ -34,8 +34,6 @@ const SUPPORT_COMPLETE_NOTICE =
   "This live support conversation has been marked complete. You can continue asking financial aid questions or start a new support request if needed."
 const SUPPORT_CLOSED_NOTICE =
   "This live support request was closed. You can start a new live support request if you still need help."
-const OUTSIDE_HOURS_NOTICE =
-  `Live support is currently outside Financial Aid office hours. The chatbot is still available for general BYU–Hawaii Financial Aid questions. For account-specific help, contact ${FINANCIAL_AID_CONTACT.email} or ${FINANCIAL_AID_CONTACT.office} during office hours.`
 
 // ---------------------------------------------------------------------------
 // Types
@@ -296,7 +294,7 @@ export default function Page() {
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
     }
-  }, [completedSupportRequestIds, supportRequestId, setMessages, uiText.supportClosedNotice, uiText.supportCompleteNotice])
+  }, [completedSupportRequestIds, supportRequestId, setMessages, uiText.supportClosedNotice, uiText.supportCompleteNotice, connectedAdvisorName])
 
   // ---------------------------------------------------------------------------
   // Helpers
@@ -551,14 +549,6 @@ export default function Page() {
     setConversations((prev) => prev.filter((c) => c.id !== id))
   }
 
-  async function handleLiveSupportFromIntro() {
-    const id = generateId()
-    setConversations((prev) => [{ id, title: "Live Support Request", savedMessages: [] }, ...prev])
-    setActiveConversationId(id)
-    setViewMode("chat")
-    await handleSpeakToHuman({ forConversationId: id })
-  }
-
   async function handleSpeakToHuman(options: SupportRequestOptions = {}) {
     // LIVE_SUPPORT_DISABLED — remove this block to re-enable
     const unavailableMsg: UIMessage = {
@@ -619,11 +609,7 @@ export default function Page() {
       }
 
       const data = await res.json()
-      const requestId = data.supportRequest?.id as string | undefined
-
-      if (requestId) {
-        setSupportRequestId(requestId)
-      }
+      setSupportRequestId((data.supportRequest?.id as string | undefined) ?? null)
 
       const handoffMsg: UIMessage = {
         id: generateId(),
