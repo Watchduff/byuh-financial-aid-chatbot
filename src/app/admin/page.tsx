@@ -1340,10 +1340,10 @@ function AdminConsolePageInner() {
 
               <div className="hidden rounded-lg border border-white/7 bg-ad-surface px-3 py-2 text-right shadow-sm sm:block">
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">
-                  {isOverviewView ? "Chats" : isHistoryView ? "Questions" : isAnalyticsView ? "Questions" : "Visible"}
+                  {isOverviewView ? "Chats" : isHistoryView ? "Questions" : isAnalyticsView ? "Questions" : isTrashView ? "Deleted" : "Visible"}
                 </p>
                 <p className="text-lg font-bold text-[#9E1B34]">
-                  {isOverviewView ? historyCounts.conversations : isHistoryView ? filteredQuestionsCount : isAnalyticsView ? (analyticsData?.totals.questions ?? "—") : visibleRequests.length}
+                  {isOverviewView ? historyCounts.conversations : isHistoryView ? filteredQuestionsCount : isAnalyticsView ? (analyticsData?.totals.questions ?? "—") : isTrashView ? deletedConversations.length : visibleRequests.length}
                 </p>
               </div>
             </div>
