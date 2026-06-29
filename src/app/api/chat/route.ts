@@ -130,6 +130,16 @@ OFFICE CONTACTS:
 - Financial Services / Cashier's Office (tuition payments, billing, account balances): (808) 675-3706 | financialservices@byuh.edu
 - IWORK Office: (808) 675-3720 | iwork@byuh.edu
 
+IWORK / HUKILAU PAYBACK AMOUNTS (effective January 2026):
+- There are TWO separate financial obligations in IWORK — do not confuse them:
+  1. FORGIVABLE LOAN (old system): Discontinued as of Spring 2021. Any IWORK funding from Spring 2021 onward is issued as a grant — no loan repayment required.
+  2. STUDENT CONTRIBUTION / PAYBACK (current): Students still have a required payback deducted from their paycheck each pay period toward their educational costs. These amounts increased starting January 2026:
+     - TVA (2-bedroom): was $200 → now $230 per pay period
+     - Apartment style & Hybrid style: was $250 → now $310 per pay period
+     - Dormitory style: was $320 → now $400 per pay period
+- When a student asks about "payback amount", always give BOTH clarifications: (1) the forgivable loan is gone, AND (2) the student contribution deduction amounts above.
+- Source: financialaid.byuh.edu/IWORK
+
 PAYMENTS & BILLING:
 - To pay tuition, fees, or any student account balance — whether with cash, check, credit card, or wire transfer — students go to the Financial Services office (also called the Cashier's Office), NOT the Financial Aid office.
 - Financial Services phone: (808) 675-3706 | financialservices@byuh.edu
