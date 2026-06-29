@@ -20,8 +20,30 @@ function inferConfidence(message: MessageRow | undefined): "high" | "low" | null
   return "high"
 }
 
+// All date bucketing uses Hawaii time (Pacific/Honolulu, UTC-10, no DST)
+// so that June 30 at 11 PM HST counts as June, not July.
+function toHawaiiParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Pacific/Honolulu",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(date)
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "00"
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: Number(get("hour")),
+  }
+}
+
 function monthKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
+  const { year, month } = toHawaiiParts(date)
+  return `${year}-${month}`
 }
 
 export async function GET(request: Request) {

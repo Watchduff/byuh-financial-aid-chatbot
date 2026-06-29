@@ -90,12 +90,38 @@ function isoDate(value: Date | null) {
   return value ? value.toISOString() : null
 }
 
+// All date bucketing uses Hawaii time (Pacific/Honolulu, UTC-10, no DST)
+// so that June 30 at 11 PM HST counts as June, not July.
+function toHawaiiParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Pacific/Honolulu",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(date)
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "00"
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: Number(get("hour")),
+  }
+}
+
 function yearKey(value: Date | string) {
-  return String(new Date(value).getFullYear())
+  return toHawaiiParts(new Date(value)).year
 }
 
 function dayKey(value: Date | string) {
-  return new Date(value).toISOString().slice(0, 10)
+  const { year, month, day } = toHawaiiParts(new Date(value))
+  return `${year}-${month}-${day}`
+}
+
+function hourKey(value: Date | string) {
+  return toHawaiiParts(new Date(value)).hour
 }
 
 export async function GET(request: Request) {
@@ -203,10 +229,10 @@ export async function GET(request: Request) {
     }))
 
     for (const conversation of conversationsInRange) {
-      conversationsPerHour[new Date(conversation.createdAt).getHours()].conversations++
+      conversationsPerHour[hourKey(conversation.createdAt)].conversations++
     }
     for (const message of userMessages) {
-      conversationsPerHour[new Date(message.createdAt).getHours()].messagesSentToBot++
+      conversationsPerHour[hourKey(message.createdAt)].messagesSentToBot++
     }
 
     const daySet = new Set(userMessages.map((message) => dayKey(message.createdAt)))
