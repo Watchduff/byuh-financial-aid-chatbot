@@ -26,7 +26,14 @@ const ALLOWED_HOSTNAMES = new Set(
     .map((host) => host.trim().toLowerCase())
     .filter(Boolean)
 )
-const MAX_PAGES = envNumber("INGEST_MAX_PAGES", 60)
+const MAX_PAGES = envNumber("INGEST_MAX_PAGES", 500)
+// Any other *.byuh.edu page linked from the financial aid site (e.g. cashier's
+// office, registrar) is collected here and ingested one level deep — no recursive
+// crawl of those external domains.
+const COLLECT_BYUH_EXTERNALS = /^(1|true|yes)$/i.test(
+  process.env.INGEST_COLLECT_BYUH_EXTERNALS ?? "false"
+)
+const BYUH_HOSTNAME_RE = /\.byuh\.edu$/i
 const DELAY_MS = envNumber("INGEST_DELAY_MS", 500)
 const CRAWL_TIMEOUT_MS = envNumber("INGEST_CRAWL_TIMEOUT_MS", 30000)
 const SCRAPE_ONLY = envBoolean("INGEST_SCRAPE_ONLY")
@@ -72,11 +79,14 @@ const SEED_URLS = [
 const embedLimit = pLimit(5)
 
 // ---------------------------------------------------------------------------
-// BFS crawler — stays within financialaid.byuh.edu
+// BFS crawler — exhaustively covers financialaid.byuh.edu and collects any
+// other *.byuh.edu pages that are directly linked from it (one level only).
 // ---------------------------------------------------------------------------
-async function crawl(startUrl: string): Promise<string[]> {
+async function crawl(startUrl: string): Promise<{ internal: string[]; external: string[] }> {
   const visited = new Set<string>()
   const crawlable = new Set<string>()
+  // *.byuh.edu links found on financial-aid pages but NOT crawled recursively
+  const externalByuh = new Set<string>()
   const queue: string[] = [startUrl]
 
   while (queue.length > 0 && visited.size < MAX_PAGES) {
@@ -132,14 +142,23 @@ async function crawl(startUrl: string): Promise<string[]> {
           const resolved = new URL(href, finalUrl)
           resolved.hash = ""
           const clean = resolved.toString()
+          const hostname = resolved.hostname.toLowerCase()
 
-          if (
-            ALLOWED_HOSTNAMES.has(resolved.hostname.toLowerCase()) &&
-            !SKIP_EXTENSIONS.test(clean) &&
-            !visited.has(clean) &&
-            !queue.includes(clean)
+          if (SKIP_EXTENSIONS.test(clean)) return
+
+          if (ALLOWED_HOSTNAMES.has(hostname)) {
+            // Internal financialaid.byuh.edu link — queue for full crawl
+            if (!visited.has(clean) && !queue.includes(clean)) {
+              queue.push(clean)
+            }
+          } else if (
+            COLLECT_BYUH_EXTERNALS &&
+            BYUH_HOSTNAME_RE.test(hostname) &&
+            !externalByuh.has(clean)
           ) {
-            queue.push(clean)
+            // External *.byuh.edu link (e.g. cashier's office, registrar) —
+            // collect for one-level ingest, do not crawl recursively.
+            externalByuh.add(clean)
           }
         } catch {
           // ignore unparseable hrefs
@@ -154,7 +173,7 @@ async function crawl(startUrl: string): Promise<string[]> {
     }
   }
 
-  return Array.from(crawlable)
+  return { internal: Array.from(crawlable), external: Array.from(externalByuh) }
 }
 
 // ---------------------------------------------------------------------------
@@ -236,19 +255,27 @@ async function ingestPage(url: string): Promise<number> {
 async function main() {
   console.log("\nBYUH Financial Aid Ingestion Pipeline")
   console.log("======================================\n")
-  console.log(`Crawling : ${START_URL}`)
-  console.log(`Max pages: ${MAX_PAGES}`)
-  console.log(`Mode     : ${SCRAPE_ONLY ? "scrape only (no DB/OpenAI writes)" : "scrape, embed, and store"}`)
+  console.log(`Crawling  : ${START_URL}`)
+  console.log(`Max pages : ${MAX_PAGES}`)
+  console.log(`Externals : ${COLLECT_BYUH_EXTERNALS ? "collecting linked *.byuh.edu pages (set INGEST_COLLECT_BYUH_EXTERNALS=false to disable)" : "disabled"}`)
+  console.log(`Mode      : ${SCRAPE_ONLY ? "scrape only (no DB/OpenAI writes)" : "scrape, embed, and store"}`)
   console.log(`Playwright: ${process.env.INGEST_USE_PLAYWRIGHT ? "enabled" : "disabled (set INGEST_USE_PLAYWRIGHT=true for JS-rendered pages)"}\n`)
 
-  const crawledUrls = await crawl(START_URL)
+  const { internal: crawledUrls, external: externalUrls } = await crawl(START_URL)
 
   // Seed URLs come first so they're always included even if crawl hits MAX_PAGES early.
-  // Set deduplicates any overlap with crawled URLs.
-  const urls = [...new Set([...SEED_URLS, ...crawledUrls])]
+  // External *.byuh.edu pages linked from the financial aid site are appended last.
+  // Set deduplicates any overlap across all three sources.
+  const urls = [...new Set([...SEED_URLS, ...crawledUrls, ...externalUrls])]
   console.log(`Seed URLs : ${SEED_URLS.length}`)
-  console.log(`Crawled   : ${crawledUrls.length}`)
+  console.log(`Crawled   : ${crawledUrls.length} (financialaid.byuh.edu)`)
+  console.log(`External  : ${externalUrls.length} (other *.byuh.edu pages linked from above)`)
   console.log(`Total     : ${urls.length} pages to ingest\n`)
+  if (externalUrls.length > 0) {
+    console.log("External *.byuh.edu pages discovered:")
+    externalUrls.forEach((u) => console.log(`  • ${u}`))
+    console.log()
+  }
 
   let totalPages = 0
   let totalChunks = 0

@@ -2,7 +2,9 @@
   "name": "nextjs-project",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.33.2",
   "scripts": {
+    "preinstall": "npx only-allow pnpm",
     "predev": "powershell -Command \"Remove-Item -Path './.next/dev/lock' -Force -ErrorAction SilentlyContinue; $p = (Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue).OwningProcess; if ($p) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }; exit 0\"",
     "dev": "concurrently --kill-others-on-fail --names \"next,fastapi\" --prefix-colors \"blue,green\" \"next dev --port 3000\" \".venv\\\\Scripts\\\\python -m uvicorn backend.app.main:app --reload --port 8000\"",
     "build": "next build",

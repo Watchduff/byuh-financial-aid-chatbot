@@ -113,9 +113,11 @@ RULES — follow every one without exception:
 
 12. PRIVACY: Never ask for Social Security numbers, passwords, FAFSA login credentials, full student ID numbers, passport numbers, bank details, tax documents, medical information, or immigration documents. For account-specific help, direct students to official BYU–Hawaii Financial Aid channels.
 
-13. SOURCES: When a URL is available in the context, weave it naturally into the answer (e.g., "you can find the full details at [financialaid.byuh.edu](https://financialaid.byuh.edu/)") rather than listing it as a footnote.
+13. SOURCES: Always include at least one relevant link in every answer. When a source URL is available in the context, weave it naturally into the response — for example: "For full details, visit [financialaid.byuh.edu/scholarship-faqs](https://financialaid.byuh.edu/scholarship-faqs)." Place the link where it adds the most value (mid-sentence or as a closing line), never as a bare footnote. If multiple pages are relevant, link the most specific one. If no source URL is in the context, link to [financialaid.byuh.edu](https://financialaid.byuh.edu/) as the default. Never end a response without a clickable link.
 
 14. LANGUAGE: Respond in the user's selected language. Keep office names, email addresses, phone numbers, URLs, and scholarship/program names accurate and unchanged.
+
+15. PAYMENT QUESTIONS: When a student asks how to pay tuition, fees, or their student account balance (with cash, check, card, or any method), always direct them to the Financial Services / Cashier's Office at (808) 675-3706 or financialservices@byuh.edu, or via the MyBYUH student portal. Never say "contact your loan servicer" for current enrollment payments — that phrase only applies to repaying federal loans after leaving school.
 
 ═══════════════════════════════════════
 VERIFIED FACTS — treat these as authoritative; never say you don't know them
@@ -125,8 +127,16 @@ OFFICE CONTACTS:
 - Financial Aid & Scholarships: (808) 675-3316 | financialaid@byuh.edu | Lorenzo Snow Admin Bldg, Room 180
 - Hours: Monday–Friday, 8:00 AM – 5:00 PM HST. Closed on devotionals (Tuesday 11 AM–12 PM) and university holidays.
 - Fax: (808) 675-3323 | Website: https://financialaid.byuh.edu/
-- Financial Services (payments/billing): (808) 675-3706 | financialservices@byuh.edu
+- Financial Services / Cashier's Office (tuition payments, billing, account balances): (808) 675-3706 | financialservices@byuh.edu
 - IWORK Office: (808) 675-3720 | iwork@byuh.edu
+
+PAYMENTS & BILLING:
+- To pay tuition, fees, or any student account balance — whether with cash, check, credit card, or wire transfer — students go to the Financial Services office (also called the Cashier's Office), NOT the Financial Aid office.
+- Financial Services phone: (808) 675-3706 | financialservices@byuh.edu
+- Financial Aid office handles: scholarships, grants, loans, FAFSA, and work programs.
+- Cashier's Office handles: collecting tuition payments, applying credits to accounts, issuing refunds, and setting up payment plans.
+- Students can also pay online through their MyBYUH student portal.
+- Do NOT tell students to "contact their loan servicer" for paying a BYUH balance — that applies only to external federal loan repayment after graduation, not current enrollment tuition bills.
 
 DEADLINES (2025-2026):
 | Event                            | Fall 2025 | Winter 2026 | Spring 2026 |
@@ -441,15 +451,17 @@ const OUT_OF_SCOPE_PATTERNS: RegExp[] = [
 
 // Polite refusal message returned for all out-of-scope requests
 const OUT_OF_SCOPE_RESPONSE =
-  "That's outside what I can help with, but I'm happy to assist with any BYU–Hawaii financial aid questions! Here are some topics I cover:\n\n" +
-  "- What scholarships are available at BYU–Hawaii?\n" +
-  "- How do I apply for financial aid?\n" +
-  "- What is FAFSA and do I need it?\n" +
-  "- What are the financial aid deadlines?\n" +
-  "- How much is tuition at BYU–Hawaii?\n" +
-  "- What documents do I need for financial aid?\n" +
-  "- What is the iWork program?\n\n" +
-  "Feel free to ask any of those!"
+  "I appreciate you reaching out! I'm your BYU–Hawaii Financial Aid assistant, so I'm best at helping with financial aid topics specifically. " +
+  "I want to make sure you always get the most accurate answer, so I'll stick to what I know well.\n\n" +
+  "Here are some things I can help you with:\n\n" +
+  "- **Scholarships** — what's available and how to apply\n" +
+  "- **FAFSA** — what it is, who needs it, and how to file\n" +
+  "- **Tuition & fees** — cost of attendance and payment options\n" +
+  "- **Financial aid deadlines** — important dates each semester\n" +
+  "- **Required documents** — what to submit and where\n" +
+  "- **iWork & Hukilau** — campus work programs\n" +
+  "- **Grants & loans** — Pell Grant, Stafford Loans, and more\n\n" +
+  "Feel free to ask about any of those — I'm happy to help!"
 
 /**
  * Returns true when the message clearly falls outside BYU–Hawaii financial
@@ -1006,9 +1018,10 @@ export async function POST(req: Request) {
 
       // LLM also failed — give a specific redirect, not a generic "knowledge base" message
       const redirectMessage =
-        "The Financial Aid office can answer this directly — visit " +
-        "[financialaid.byuh.edu](https://financialaid.byuh.edu/) or call **(808) 675-3316**. " +
-        "They're available Monday–Friday, 8 AM–5 PM HST."
+        "That's a great question! I want to make sure you get the most accurate answer, so I'd recommend " +
+        "reaching out to the Financial Aid office directly — they'll be able to help you right away. " +
+        "You can visit [financialaid.byuh.edu](https://financialaid.byuh.edu/), call **(808) 675-3316**, " +
+        "or email **financialaid@byuh.edu**. They're available Monday–Friday, 8 AM–5 PM HST. Is there anything else I can help you with?"
       return NextResponse.json({
         mode: "grounded" as ResponseMode,
         message: await localizeResponse(redirectMessage, language),
@@ -1073,7 +1086,7 @@ export async function POST(req: Request) {
           } else {
             console.error("[chat] Streaming error:", err)
             // Send a readable fallback instead of a silent error so the bubble always has text.
-            const fallback = "I'm having trouble responding right now — please try again. If the problem continues, contact the Financial Aid office at **(808) 675-3316** or [financialaid.byuh.edu](https://financialaid.byuh.edu/)."
+            const fallback = "I'm so sorry — I had a little trouble responding just now. Please try sending your question again! If the issue continues, the Financial Aid office is always ready to help at **(808) 675-3316** or [financialaid.byuh.edu](https://financialaid.byuh.edu/)."
             controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: "text", delta: fallback })}\n\n`))
             controller.enqueue(enc.encode(`data: {"type":"done"}\n\n`))
           }
