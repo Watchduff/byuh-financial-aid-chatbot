@@ -139,9 +139,17 @@ export async function GET(request: Request) {
       escalations: entry.escalations,
     }))
 
+    // Use a single deduplicated Set for the yearly conversation total so that
+    // conversations spanning two months (e.g. started May, continued June) are
+    // not double-counted when each month's Set is summed.
+    const allConvIdsForYear = new Set<string>()
+    for (const entry of Object.values(monthlyData)) {
+      for (const id of entry.conversations) allConvIdsForYear.add(id)
+    }
+
     const totals = months.reduce(
       (acc, m) => ({
-        conversations: acc.conversations + m.conversations,
+        conversations: acc.conversations, // set below after reduce
         questions: acc.questions + m.questions,
         high: acc.high + m.high,
         low: acc.low + m.low,
@@ -149,6 +157,7 @@ export async function GET(request: Request) {
       }),
       { conversations: 0, questions: 0, high: 0, low: 0, escalations: 0 }
     )
+    totals.conversations = allConvIdsForYear.size
 
     return Response.json(
       { year, months, totals, availableYears },
