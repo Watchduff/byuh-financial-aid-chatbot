@@ -220,6 +220,7 @@ function AdminConsolePageInner() {
   const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false)
   const [selectedHistoryConversationId, setSelectedHistoryConversationId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [requests, setRequests] = useState<SupportRequest[]>([])
   const [chatHistory, setChatHistory] = useState<ChatHistoryEntry[]>([])
   const [historyAgentReplies, setHistoryAgentReplies] = useState<Record<string, Array<{ id: string; agentName: string; content: string; createdAt: string }>>>({})
@@ -1175,130 +1176,162 @@ function AdminConsolePageInner() {
 
       <div className="flex min-h-screen">
         <aside
-          className={`fixed inset-y-0 left-0 z-40 flex w-18 flex-col items-center border-r border-[#7d1428] bg-[#9E1B34] py-4 text-white shadow-xl transition-transform md:sticky md:top-0 md:translate-x-0 ${
+          className={`fixed inset-y-0 left-0 z-40 flex shrink-0 flex-col border-r border-[#7d1428] bg-[#9E1B34] text-white shadow-xl transition-all duration-300 md:sticky md:top-0 md:h-screen md:translate-x-0 ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          }`}
+          } ${sidebarCollapsed ? "md:w-13" : "w-44"}`}
         >
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(false)}
-            aria-label="Close sidebar"
-            className="mb-4 rounded-lg p-2 text-white/65 transition hover:bg-white/10 hover:text-white md:hidden"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
-              <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
-            </svg>
-          </button>
-
-          <div className="mb-7 flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-full bg-white/15 leading-none shadow-sm ring-2 ring-white/30">
-            <span className="text-[10px] font-extrabold text-white">BYU</span>
-            <span className="text-[5px] font-bold uppercase tracking-widest text-white/80">HAWAII</span>
+          {/* ── Header ── */}
+          <div className={`flex items-center pt-5 pb-4 ${sidebarCollapsed ? "justify-center px-2" : "justify-between px-4"}`}>
+            {!sidebarCollapsed && (
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-full bg-white/15 leading-none ring-2 ring-white/25">
+                  <span className="text-[9px] font-extrabold text-white">BYU</span>
+                  <span className="text-[5px] font-bold uppercase tracking-widest text-white/75">HAWAII</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-white/50">Financial Aid</p>
+                  <p className="text-xs font-bold text-white">Admin Console</p>
+                </div>
+              </div>
+            )}
+            {sidebarCollapsed && (
+              <div className="flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-full bg-white/15 leading-none ring-2 ring-white/25">
+                <span className="text-[9px] font-extrabold text-white">BYU</span>
+                <span className="text-[5px] font-bold uppercase tracking-widest text-white/75">HAWAII</span>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Close sidebar"
+              className="rounded-lg p-1.5 text-white/50 transition hover:bg-white/10 hover:text-white md:hidden"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" />
+              </svg>
+            </button>
           </div>
 
-          <nav className="flex flex-1 flex-col items-center gap-3">
+          <div className="mx-3 mb-3 h-px bg-white/15" />
+
+          {/* ── Nav ── */}
+          <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
+            {!sidebarCollapsed && (
+              <p className="mb-1 px-3 text-[9px] font-bold uppercase tracking-[0.2em] text-white/35">Navigation</p>
+            )}
             {[
               {
                 label: "Overview",
                 active: isOverviewView,
                 onClick: () => navigateTo("overview"),
-                icon: (
-                  <path fillRule="evenodd" d="M9.293 2.293a1 1 0 0 1 1.414 0l7 7A1 1 0 0 1 17 11h-1v6a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6H3a1 1 0 0 1-.707-1.707l7-7Z" clipRule="evenodd" />
-                ),
-              },
-              {
-                label: "Live Support",
-                active: filter === "pending" || filter === "answered" || filter === "all",
-                dot: counts.pending > 0,
-                onClick: () => navigateTo("pending"),
-                icon: (
-                  <path fillRule="evenodd" d="M2 5.75A2.75 2.75 0 0 1 4.75 3h10.5A2.75 2.75 0 0 1 18 5.75v8.5A2.75 2.75 0 0 1 15.25 17H4.75A2.75 2.75 0 0 1 2 14.25v-8.5Zm2.75-1.25c-.69 0-1.25.56-1.25 1.25v1h13v-1c0-.69-.56-1.25-1.25-1.25H4.75Zm11.75 3.75h-13v6c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6Z" clipRule="evenodd" />
-                ),
+                icon: <path fillRule="evenodd" d="M9.293 2.293a1 1 0 0 1 1.414 0l7 7A1 1 0 0 1 17 11h-1v6a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-3a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-6H3a1 1 0 0 1-.707-1.707l7-7Z" clipRule="evenodd" />,
               },
               {
                 label: "Chat History",
-                count: historyCounts.conversations,
                 active: isHistoryView,
                 onClick: () => navigateTo("history"),
-                icon: (
-                  <path fillRule="evenodd" d="M10 3c-4.418 0-8 2.91-8 6.5 0 1.508.635 2.89 1.697 3.993-.102.838-.367 1.522-.667 2.04a.75.75 0 0 0 .889 1.09 8.66 8.66 0 0 0 2.826-1.563A9.43 9.43 0 0 0 10 16c4.418 0 8-2.91 8-6.5S14.418 3 10 3ZM6.75 9.5a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H6.75Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H10Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5h-.008Z" clipRule="evenodd" />
-                ),
+                icon: <path fillRule="evenodd" d="M10 3c-4.418 0-8 2.91-8 6.5 0 1.508.635 2.89 1.697 3.993-.102.838-.367 1.522-.667 2.04a.75.75 0 0 0 .889 1.09 8.66 8.66 0 0 0 2.826-1.563A9.43 9.43 0 0 0 10 16c4.418 0 8-2.91 8-6.5S14.418 3 10 3ZM6.75 9.5a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H6.75Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5H10Zm3.25 0a.75.75 0 1 0 0 1.5h.008a.75.75 0 1 0 0-1.5h-.008Z" clipRule="evenodd" />,
               },
               {
                 label: "Analytics",
-                count: analyticsData?.totals.questions ?? 0,
                 active: isAnalyticsView,
                 onClick: () => navigateTo("analytics"),
-                icon: (
-                  <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM9.5 6A1.5 1.5 0 0 0 8 7.5v9a1.5 1.5 0 0 0 3 0v-9A1.5 1.5 0 0 0 9.5 6ZM3.5 10A1.5 1.5 0 0 0 2 11.5v5a1.5 1.5 0 0 0 3 0v-5A1.5 1.5 0 0 0 3.5 10Z" />
-                ),
+                icon: <path d="M15.5 2A1.5 1.5 0 0 0 14 3.5v13a1.5 1.5 0 0 0 3 0v-13A1.5 1.5 0 0 0 15.5 2ZM9.5 6A1.5 1.5 0 0 0 8 7.5v9a1.5 1.5 0 0 0 3 0v-9A1.5 1.5 0 0 0 9.5 6ZM3.5 10A1.5 1.5 0 0 0 2 11.5v5a1.5 1.5 0 0 0 3 0v-5A1.5 1.5 0 0 0 3.5 10Z" />,
               },
               {
                 label: "Trash Bin",
-                count: deletedConversations.length,
                 active: isTrashView,
                 onClick: () => navigateTo("trash"),
-                icon: (
-                  <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4Z" clipRule="evenodd" />
-                ),
+                icon: <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 0 0 6 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 1 0 .23 1.482l.149-.022.841 10.518A2.75 2.75 0 0 0 7.596 19h4.807a2.75 2.75 0 0 0 2.742-2.53l.841-10.52.149.023a.75.75 0 0 0 .23-1.482A41.03 41.03 0 0 0 14 4.193V3.75A2.75 2.75 0 0 0 11.25 1h-2.5ZM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4Z" clipRule="evenodd" />,
+              },
+              {
+                label: "Live Support",
+                disabled: true,
+                active: filter === "pending" || filter === "answered" || filter === "all",
+                onClick: () => navigateTo("pending"),
+                icon: <path fillRule="evenodd" d="M2 5.75A2.75 2.75 0 0 1 4.75 3h10.5A2.75 2.75 0 0 1 18 5.75v8.5A2.75 2.75 0 0 1 15.25 17H4.75A2.75 2.75 0 0 1 2 14.25v-8.5Zm2.75-1.25c-.69 0-1.25.56-1.25 1.25v1h13v-1c0-.69-.56-1.25-1.25-1.25H4.75Zm11.75 3.75h-13v6c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6Z" clipRule="evenodd" />,
               },
             ].map((item) => {
-              const isLiveSupportDisabled = item.label === "Live Support"
+              const isDisabled = "disabled" in item && item.disabled
               return (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => {
-                  if (isLiveSupportDisabled) return
-                  item.onClick()
-                  setSidebarOpen(false)
-                }}
-                aria-label={item.label}
-                className={`group relative flex h-11 w-11 items-center justify-center rounded-lg transition ${
-                  isLiveSupportDisabled
-                    ? "cursor-not-allowed opacity-40 text-white/40"
-                    : item.active
-                      ? "bg-white text-[#9E1B34] shadow-sm"
-                      : "text-white/70 hover:bg-white/12 hover:text-white"
-                }`}
-              >
-                {item.active && !isLiveSupportDisabled && <span className="absolute -left-3 h-7 w-1 rounded-r-full bg-white" />}
-                {"dot" in item && item.dot && !isLiveSupportDisabled && (
-                  <span className="absolute right-1.5 top-1.5 flex h-2.5 w-2.5">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
-                  </span>
-                )}
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
-                  {item.icon}
-                </svg>
-                <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:translate-x-1 group-hover:opacity-100">
-                  {item.label}
-                </span>
-              </button>
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => {
+                    if (isDisabled) return
+                    item.onClick()
+                    setSidebarOpen(false)
+                  }}
+                  aria-label={item.label}
+                  title={sidebarCollapsed ? item.label : undefined}
+                  className={`group relative flex w-full items-center rounded-lg text-left text-sm font-medium transition-all ${
+                    sidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
+                  } ${
+                    isDisabled
+                      ? "cursor-not-allowed opacity-35 text-white/50"
+                      : item.active
+                        ? "bg-white/20 text-white shadow-sm"
+                        : "text-white/65 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  {item.active && !isDisabled && (
+                    <span className="absolute -left-2 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-white" />
+                  )}
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4.5 w-4.5 shrink-0">
+                    {item.icon}
+                  </svg>
+                  {!sidebarCollapsed && (
+                    <>
+                      <span className="flex-1 truncate">{item.label}</span>
+                      {isDisabled && (
+                        <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide bg-white/10 text-white/40">Off</span>
+                      )}
+                    </>
+                  )}
+                </button>
               )
             })}
           </nav>
 
-          <button
-            type="button"
-            onClick={fetchRequests}
-            aria-label="Refresh requests"
-            className="group relative mb-3 flex h-11 w-11 items-center justify-center rounded-lg text-white/70 transition hover:bg-white/12 hover:text-white"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-5 w-5">
-              <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466.75.75 0 0 0-1.061 1.061 7 7 0 0 0 11.856-3.061.75.75 0 0 0-1.594-.466ZM4.688 8.576a5.5 5.5 0 0 1 9.201-2.466.75.75 0 1 0 1.061-1.061A7 7 0 0 0 3.094 8.11a.75.75 0 0 0 1.594.466Z" clipRule="evenodd" />
-            </svg>
-            <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:translate-x-1 group-hover:opacity-100">
-              Refresh requests
-            </span>
-          </button>
-
-          <div className="group relative flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white">
-            {(adminName || "A").charAt(0).toUpperCase()}
-            <span className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white opacity-0 shadow-lg transition group-hover:translate-x-1 group-hover:opacity-100">
-              {adminName || "Financial Aid Advisor"}
-            </span>
+          {/* ── Bottom ── */}
+          <div className="mx-3 mb-3 h-px bg-white/15" />
+          <div className="px-2 pb-2">
+            {/* ── Collapse toggle (desktop only) ── */}
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed((c) => !c)}
+              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              className={`mt-0.5 hidden md:flex w-full items-center rounded-lg text-sm font-medium text-white/60 transition hover:bg-white/10 hover:text-white ${
+                sidebarCollapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5"
+              }`}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className={`h-4.5 w-4.5 shrink-0 transition-transform duration-300 ${sidebarCollapsed ? "rotate-180" : ""}`}
+              >
+                <path fillRule="evenodd" d="M11.78 5.22a.75.75 0 0 1 0 1.06L8.06 10l3.72 3.72a.75.75 0 1 1-1.06 1.06l-4.25-4.25a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z" clipRule="evenodd" />
+              </svg>
+              {!sidebarCollapsed && <span>Collapse</span>}
+            </button>
           </div>
+          {!sidebarCollapsed && (
+            <div className="mx-3 mb-4 flex items-center gap-3 rounded-xl bg-white/10 px-3 py-2.5 ring-1 ring-white/10">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white">
+                {(adminName || "A").charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-xs font-semibold text-white">{adminName || "Financial Aid Advisor"}</p>
+                <p className="text-[10px] text-white/45">Administrator</p>
+              </div>
+            </div>
+          )}
+          {sidebarCollapsed && (
+            <div className="mx-auto mb-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-sm font-bold text-white" title={adminName || "Financial Aid Advisor"}>
+              {(adminName || "A").charAt(0).toUpperCase()}
+            </div>
+          )}
         </aside>
 
         <section className="min-w-0 flex-1">
