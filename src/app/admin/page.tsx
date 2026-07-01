@@ -346,6 +346,21 @@ function AdminConsolePageInner() {
     } catch {}
   }, [])
 
+  const [manualRefreshing, setManualRefreshing] = useState(false)
+
+  const handleManualRefresh = useCallback(async () => {
+    setManualRefreshing(true)
+    try {
+      if (filter === "analytics") {
+        await fetchAnalytics(analyticsYear)
+      } else {
+        await Promise.all([fetchRequests(), fetchChatHistory(), fetchFeedbackStats()])
+      }
+    } finally {
+      setManualRefreshing(false)
+    }
+  }, [filter, analyticsYear, fetchAnalytics, fetchRequests, fetchChatHistory, fetchFeedbackStats])
+
   const fetchDeletedConversations = useCallback(async () => {
     setDeletedConvsLoading(true)
     try {
@@ -1353,6 +1368,20 @@ function AdminConsolePageInner() {
                 </h2>
                 <p className="mt-1 text-sm text-[#787878]">{activeFilter.description}</p>
               </div>
+              {(isOverviewView || isAnalyticsView) && (
+                <button
+                  type="button"
+                  onClick={handleManualRefresh}
+                  disabled={manualRefreshing}
+                  aria-label="Refresh"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/7 bg-ad-surface text-ad-muted transition hover:bg-ad-raised hover:text-ad-text disabled:opacity-50"
+                  title="Refresh"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`h-4 w-4 ${manualRefreshing ? "animate-spin" : ""}`}>
+                    <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={toggleDarkMode}
