@@ -22,6 +22,21 @@ function inferConfidence(message: MessageRow | undefined): "high" | "low" | null
   return "high"
 }
 
+// All date bucketing uses Hawaii time (Pacific/Honolulu, UTC-10, no DST)
+// so that midnight boundaries match the monthly summary in monthly/route.ts.
+function toHawaiiParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Pacific/Honolulu",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour12: false,
+  }).formatToParts(date)
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "00"
+  return { year: get("year"), month: get("month"), day: get("day") }
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url)
@@ -70,10 +85,10 @@ export async function GET(request: Request) {
         const msg = messages[i]
         if (msg.role !== "user") continue
 
-        const date = new Date(msg.createdAt)
-        if (date.getFullYear() !== year || date.getMonth() + 1 !== monthNum) continue
+        const parts = toHawaiiParts(new Date(msg.createdAt))
+        if (Number(parts.year) !== year || Number(parts.month) !== monthNum) continue
 
-        const key = `${year}-${String(monthNum).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+        const key = `${parts.year}-${parts.month}-${parts.day}`
         if (!dailyData[key]) continue
 
         const assistantMsg = messages.slice(i + 1).find((m) => m.role === "assistant")
@@ -88,9 +103,9 @@ export async function GET(request: Request) {
 
     const allSupport = await db.select().from(supportRequests)
     for (const req of allSupport) {
-      const date = new Date(req.createdAt)
-      if (date.getFullYear() !== year || date.getMonth() + 1 !== monthNum) continue
-      const key = `${year}-${String(monthNum).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+      const parts = toHawaiiParts(new Date(req.createdAt))
+      if (Number(parts.year) !== year || Number(parts.month) !== monthNum) continue
+      const key = `${parts.year}-${parts.month}-${parts.day}`
       if (!dailyData[key]) continue
       dailyData[key].escalations++
     }

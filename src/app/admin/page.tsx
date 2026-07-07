@@ -211,6 +211,24 @@ function AdminConsolePageInner() {
     params.set("tab", tab)
     router.replace(`?${params.toString()}`, { scroll: false })
   }
+
+  // Tab switches use router.replace (no history entry), so the browser's back
+  // button exits the console instead of stepping through it — this button
+  // steps back one level within the console itself.
+  const canGoBack = filter !== "overview"
+  function handleBack() {
+    if (filter === "analytics") {
+      if (selectedAnalyticsMonth) {
+        setSelectedAnalyticsMonth(null)
+        return
+      }
+      if (analyticsView === "monthly") {
+        setAnalyticsView("yearly")
+        return
+      }
+    }
+    navigateTo("overview")
+  }
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>("all")
   const [historyGroupBy, setHistoryGroupBy] = useState<HistoryGroupBy>("day")
   const [historySearch, setHistorySearch] = useState("")
@@ -373,11 +391,46 @@ function AdminConsolePageInner() {
     if (filter === "trash") fetchDeletedConversations()
   }, [filter, fetchDeletedConversations])
 
+  // Fetches the "Chatbot Response Feedback" panel scoped to whichever year or
+  // month is currently selected in the Analytics tab, instead of all-time.
+  const fetchAnalyticsFeedback = useCallback(async () => {
+    if (analyticsView === "yearly") {
+      setAnalyticsFeedbackLoading(true)
+      try {
+        setAnalyticsFeedback(
+          await fetchFeedbackStatsForRange(`${analyticsYear}-01-01T00:00:00`, `${analyticsYear}-12-31T23:59:59`)
+        )
+      } finally {
+        setAnalyticsFeedbackLoading(false)
+      }
+      return
+    }
+
+    if (!selectedAnalyticsMonth) {
+      setAnalyticsFeedback(null)
+      return
+    }
+    const [y, m] = selectedAnalyticsMonth.split("-").map(Number)
+    const lastDay = new Date(y, m, 0).getDate()
+    setAnalyticsFeedbackLoading(true)
+    try {
+      setAnalyticsFeedback(
+        await fetchFeedbackStatsForRange(
+          `${selectedAnalyticsMonth}-01T00:00:00`,
+          `${selectedAnalyticsMonth}-${String(lastDay).padStart(2, "0")}T23:59:59`
+        )
+      )
+    } finally {
+      setAnalyticsFeedbackLoading(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchFeedbackStatsForRange is a stable helper, not a reactive dep
+  }, [analyticsView, analyticsYear, selectedAnalyticsMonth])
+
   const handleManualRefresh = useCallback(async () => {
     setManualRefreshing(true)
     try {
       if (filter === "analytics") {
-        await fetchAnalytics(analyticsYear)
+        await Promise.all([fetchAnalytics(analyticsYear), fetchAnalyticsFeedback()])
       } else if (filter === "trash") {
         await fetchDeletedConversations()
       } else {
@@ -386,7 +439,7 @@ function AdminConsolePageInner() {
     } finally {
       setManualRefreshing(false)
     }
-  }, [filter, analyticsYear, fetchAnalytics, fetchDeletedConversations, fetchRequests, fetchChatHistory, fetchFeedbackStats])
+  }, [filter, analyticsYear, fetchAnalytics, fetchAnalyticsFeedback, fetchDeletedConversations, fetchRequests, fetchChatHistory, fetchFeedbackStats])
 
   const toggleTrashConvMessages = useCallback(async (convId: string) => {
     if (expandedTrashConvId === convId) {
@@ -469,34 +522,10 @@ function AdminConsolePageInner() {
       .finally(() => setMonthlyDetailLoading(false))
   }, [selectedAnalyticsMonth])
 
-  // Keeps the on-screen "Chatbot Response Feedback" panel scoped to whichever
-  // year or month is currently selected in the Analytics tab, instead of all-time.
   useEffect(() => {
     if (filter !== "analytics") return
-
-    if (analyticsView === "yearly") {
-      setAnalyticsFeedbackLoading(true)
-      fetchFeedbackStatsForRange(`${analyticsYear}-01-01T00:00:00`, `${analyticsYear}-12-31T23:59:59`)
-        .then(setAnalyticsFeedback)
-        .finally(() => setAnalyticsFeedbackLoading(false))
-      return
-    }
-
-    if (!selectedAnalyticsMonth) {
-      setAnalyticsFeedback(null)
-      return
-    }
-    const [y, m] = selectedAnalyticsMonth.split("-").map(Number)
-    const lastDay = new Date(y, m, 0).getDate()
-    setAnalyticsFeedbackLoading(true)
-    fetchFeedbackStatsForRange(
-      `${selectedAnalyticsMonth}-01T00:00:00`,
-      `${selectedAnalyticsMonth}-${String(lastDay).padStart(2, "0")}T23:59:59`
-    )
-      .then(setAnalyticsFeedback)
-      .finally(() => setAnalyticsFeedbackLoading(false))
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchFeedbackStatsForRange is a stable helper, not a reactive dep
-  }, [filter, analyticsView, analyticsYear, selectedAnalyticsMonth])
+    fetchAnalyticsFeedback()
+  }, [filter, fetchAnalyticsFeedback])
 
   useEffect(() => {
     const pendingIds = requests
@@ -1418,6 +1447,19 @@ function AdminConsolePageInner() {
                   <path fillRule="evenodd" d="M2 4.75A.75.75 0 0 1 2.75 4h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 4.75ZM2 10a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 10Zm0 5.25a.75.75 0 0 1 .75-.75h14.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z" clipRule="evenodd" />
                 </svg>
               </button>
+              {canGoBack && (
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  aria-label="Back"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/7 bg-ad-surface text-ad-muted transition hover:bg-ad-raised hover:text-ad-text"
+                  title="Back"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                    <path fillRule="evenodd" d="M17 10a.75.75 0 0 1-.75.75H5.612l4.158 3.96a.75.75 0 1 1-1.04 1.08l-5.5-5.25a.75.75 0 0 1 0-1.08l5.5-5.25a.75.75 0 1 1 1.04 1.08L5.612 9.25H16.25A.75.75 0 0 1 17 10Z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-xl font-bold text-ad-text md:text-2xl">
                   {isOverviewView ? "Overview" : isHistoryView ? "Chat History" : isAnalyticsView ? "Analytics" : isTrashView ? "Trash Bin" : "Live Support"}

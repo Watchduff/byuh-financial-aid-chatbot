@@ -40,19 +40,30 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// Callers send wall-clock boundaries (e.g. "2026-01-01T00:00:00") meaning
+// Hawaii local time, to match the Hawaii-time bucketing used everywhere else
+// in analytics. Without an explicit offset, `new Date()` would parse these
+// as the server's local time (UTC), shifting every boundary by 10 hours.
+// Hawaii (Pacific/Honolulu) is UTC-10 year-round with no DST, so a fixed
+// offset is always correct.
+function parseHawaiiBoundary(value: string | null): Date | null {
+  if (!value) return null
+  const hasOffset = /Z$|[+-]\d{2}:\d{2}$/.test(value)
+  const date = new Date(hasOffset ? value : `${value}-10:00`)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 export async function GET(req: NextRequest) {
   try {
     // Optional date range (ISO strings) so callers — e.g. the yearly/monthly
     // printed reports — can scope totals and the not-helpful list to a period
     // instead of always getting all-time data.
     const url = new URL(req.url)
-    const fromParam = url.searchParams.get("from")
-    const toParam = url.searchParams.get("to")
-    const from = fromParam ? new Date(fromParam) : null
-    const to = toParam ? new Date(toParam) : null
+    const from = parseHawaiiBoundary(url.searchParams.get("from"))
+    const to = parseHawaiiBoundary(url.searchParams.get("to"))
     const dateFilter = [
-      from && !Number.isNaN(from.getTime()) ? gte(messageFeedback.createdAt, from) : undefined,
-      to && !Number.isNaN(to.getTime()) ? lte(messageFeedback.createdAt, to) : undefined,
+      from ? gte(messageFeedback.createdAt, from) : undefined,
+      to ? lte(messageFeedback.createdAt, to) : undefined,
     ].filter((clause): clause is NonNullable<typeof clause> => clause !== undefined)
     const scoped = dateFilter.length > 0 ? and(...dateFilter) : undefined
 
