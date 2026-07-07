@@ -7,7 +7,7 @@ export type UIMessage = {
   id: string
   role: "user" | "assistant" | "agent"
   content: string
-  mode?: "grounded" | "demo" | "unavailable" | "handoff" | "session-ended"
+  mode?: "grounded" | "demo" | "unavailable" | "conversational" | "guard" | "handoff" | "session-ended"
   confidence?: "high" | "low"
   confidenceScore?: number
   sources?: string[]
@@ -179,7 +179,7 @@ export function useChat(options?: UseChatOptions) {
 
         // ── JSON path (guards, demo, conversational, fallbacks) ────────────
         const data = await response.json()
-        const mode = ["grounded", "demo", "unavailable", "handoff"].includes(data.mode)
+        const mode = ["grounded", "demo", "unavailable", "conversational", "guard", "handoff"].includes(data.mode)
           ? data.mode
           : undefined
 

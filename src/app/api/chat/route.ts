@@ -15,8 +15,11 @@ import { getOrCreateSession } from "@/lib/session"
 //   "demo"       — answer came from hardcoded demo data (no live KB access)
 //   "unavailable"  — KB is empty/unreachable AND no demo answer matched
 //   "conversational"— greeting / acknowledgement / opener — no RAG involved
+//   "guard"      — canned policy response (privacy, frustration, escalation,
+//                  out-of-scope) returned before any retrieval/LLM call —
+//                  excluded from retrieval-confidence analytics
 // ---------------------------------------------------------------------------
-export type ResponseMode = "grounded" | "demo" | "unavailable" | "conversational"
+export type ResponseMode = "grounded" | "demo" | "unavailable" | "conversational" | "guard"
 type SentimentLabel = "neutral" | "confused" | "frustrated" | "urgent"
 
 async function proxyToFastApi(body: Record<string, unknown>): Promise<NextResponse | null> {
@@ -886,10 +889,10 @@ export async function POST(req: Request) {
     if (containsSensitiveInfo(message)) {
       console.log("[chat] Sensitive personal information detected — refusing")
       return NextResponse.json({
-        mode: "grounded" as ResponseMode,
+        mode: "guard" as ResponseMode,
         message: await localizeResponse(SENSITIVE_INFO_RESPONSE, language),
-        confidence: "high",
-        confidenceScore: 100,
+        confidence: null,
+        confidenceScore: null,
         sources: [],
         sentiment: currentSentiment,
       })
@@ -913,10 +916,10 @@ export async function POST(req: Request) {
     if (isFrustration(message)) {
       console.log("[chat] Frustration detected — responding with empathy")
       return NextResponse.json({
-        mode: "grounded" as ResponseMode,
+        mode: "guard" as ResponseMode,
         message: await localizeResponse(FRUSTRATION_RESPONSE, language),
-        confidence: "high",
-        confidenceScore: 100,
+        confidence: null,
+        confidenceScore: null,
         sources: [],
         sentiment: currentSentiment,
         escalation: escalation("The user appears frustrated and may need human support.", "high"),
@@ -927,10 +930,10 @@ export async function POST(req: Request) {
     if (isHumanEscalationRequest(message)) {
       console.log("[chat] Human escalation request detected — triggering handoff")
       return NextResponse.json({
-        mode: "grounded" as ResponseMode,
+        mode: "guard" as ResponseMode,
         message: await localizeResponse(HUMAN_ESCALATION_RESPONSE, language),
-        confidence: "high",
-        confidenceScore: 100,
+        confidence: null,
+        confidenceScore: null,
         sources: [],
         sentiment: currentSentiment,
         escalation: escalation("User explicitly requested to speak with a human advisor.", "high"),
@@ -941,10 +944,10 @@ export async function POST(req: Request) {
     if (isOutOfScope(message)) {
       console.log("[chat] Out-of-scope question detected — refusing")
       return NextResponse.json({
-        mode: "grounded" as ResponseMode,
+        mode: "guard" as ResponseMode,
         message: await localizeResponse(OUT_OF_SCOPE_RESPONSE, language),
-        confidence: "high",
-        confidenceScore: 100,
+        confidence: null,
+        confidenceScore: null,
         sources: [],
         sentiment: currentSentiment,
       })

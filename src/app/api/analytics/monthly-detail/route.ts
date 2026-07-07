@@ -9,7 +9,9 @@ type MessageRow = typeof chatMessages.$inferSelect
 
 function inferConfidence(message: MessageRow | undefined): "high" | "low" | null {
   if (!message) return "low"
-  if (message.responseMode === "conversational") return null
+  // Conversational greetings/openers and canned policy guards (privacy, frustration,
+  // escalation, out-of-scope) never touch retrieval — exclude from high/low counts
+  if (message.responseMode === "conversational" || message.responseMode === "guard") return null
   if (message.responseConfidence === "high" || message.responseConfidence === "low") {
     return message.responseConfidence
   }

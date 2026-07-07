@@ -469,38 +469,38 @@ class RagService:
     ) -> ChatResponse | None:
         if matches(SENSITIVE_INFO_PATTERNS, message):
             return ChatResponse(
-                mode="grounded",
+                mode="guard",
                 message=await self.localize(SENSITIVE_INFO_RESPONSE, language),
-                confidence="high",
-                confidenceScore=100,
+                confidence=None,
+                confidenceScore=None,
                 sources=[],
                 sentiment=sentiment,
             )
         if matches(CONVERSATIONAL_OPENER_PATTERNS, message):
             return ChatResponse(
-                mode="grounded",
+                mode="conversational",
                 message=await self.localize(CONVERSATIONAL_OPENER_RESPONSE, language),
-                confidence="high",
-                confidenceScore=100,
+                confidence=None,
+                confidenceScore=None,
                 sources=[],
                 sentiment=sentiment,
             )
         if matches(FRUSTRATION_PATTERNS, message):
             return ChatResponse(
-                mode="grounded",
+                mode="guard",
                 message=await self.localize(FRUSTRATION_RESPONSE, language),
-                confidence="high",
-                confidenceScore=100,
+                confidence=None,
+                confidenceScore=None,
                 sources=[],
                 sentiment=sentiment,
                 escalation=Escalation(reason="The user appears frustrated and may need human support.", priority="high"),
             )
         if matches(OUT_OF_SCOPE_PATTERNS, message):
             return ChatResponse(
-                mode="grounded",
+                mode="guard",
                 message=await self.localize(OUT_OF_SCOPE_RESPONSE, language),
-                confidence="high",
-                confidenceScore=100,
+                confidence=None,
+                confidenceScore=None,
                 sources=[],
                 sentiment=sentiment,
             )

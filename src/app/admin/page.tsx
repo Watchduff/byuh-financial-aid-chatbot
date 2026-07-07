@@ -251,6 +251,14 @@ function AdminConsolePageInner() {
   const [monthlyDetailLoading, setMonthlyDetailLoading] = useState(false)
   const [feedbackStats, setFeedbackStats] = useState<{ totals: { helpful: number; notHelpful: number; total: number }; recent: Array<{ id: number; question: string; answer: string; reason: string | null; comment: string | null; createdAt: string }>; helpfulConvIds: string[]; notHelpfulConvIds: string[] } | null>(null)
   const [feedbackFilter, setFeedbackFilter] = useState<"helpful" | "not-helpful" | null>(null)
+  type FeedbackReportStats = {
+    totals: { helpful: number; notHelpful: number; total: number }
+    recent: Array<{ id: number; question: string; answer: string; reason: string | null; comment: string | null; createdAt: string }>
+  }
+  // Feedback stats scoped to the currently selected analytics period (year or month) —
+  // distinct from `feedbackStats` above, which stays all-time for the Overview tab.
+  const [analyticsFeedback, setAnalyticsFeedback] = useState<FeedbackReportStats | null>(null)
+  const [analyticsFeedbackLoading, setAnalyticsFeedbackLoading] = useState(false)
   const [darkMode, setDarkMode] = useState(true)
 
   type DeletedConversation = {
@@ -348,19 +356,6 @@ function AdminConsolePageInner() {
 
   const [manualRefreshing, setManualRefreshing] = useState(false)
 
-  const handleManualRefresh = useCallback(async () => {
-    setManualRefreshing(true)
-    try {
-      if (filter === "analytics") {
-        await fetchAnalytics(analyticsYear)
-      } else {
-        await Promise.all([fetchRequests(), fetchChatHistory(), fetchFeedbackStats()])
-      }
-    } finally {
-      setManualRefreshing(false)
-    }
-  }, [filter, analyticsYear, fetchAnalytics, fetchRequests, fetchChatHistory, fetchFeedbackStats])
-
   const fetchDeletedConversations = useCallback(async () => {
     setDeletedConvsLoading(true)
     try {
@@ -377,6 +372,21 @@ function AdminConsolePageInner() {
   useEffect(() => {
     if (filter === "trash") fetchDeletedConversations()
   }, [filter, fetchDeletedConversations])
+
+  const handleManualRefresh = useCallback(async () => {
+    setManualRefreshing(true)
+    try {
+      if (filter === "analytics") {
+        await fetchAnalytics(analyticsYear)
+      } else if (filter === "trash") {
+        await fetchDeletedConversations()
+      } else {
+        await Promise.all([fetchRequests(), fetchChatHistory(), fetchFeedbackStats()])
+      }
+    } finally {
+      setManualRefreshing(false)
+    }
+  }, [filter, analyticsYear, fetchAnalytics, fetchDeletedConversations, fetchRequests, fetchChatHistory, fetchFeedbackStats])
 
   const toggleTrashConvMessages = useCallback(async (convId: string) => {
     if (expandedTrashConvId === convId) {
@@ -458,6 +468,35 @@ function AdminConsolePageInner() {
       .catch(() => undefined)
       .finally(() => setMonthlyDetailLoading(false))
   }, [selectedAnalyticsMonth])
+
+  // Keeps the on-screen "Chatbot Response Feedback" panel scoped to whichever
+  // year or month is currently selected in the Analytics tab, instead of all-time.
+  useEffect(() => {
+    if (filter !== "analytics") return
+
+    if (analyticsView === "yearly") {
+      setAnalyticsFeedbackLoading(true)
+      fetchFeedbackStatsForRange(`${analyticsYear}-01-01T00:00:00`, `${analyticsYear}-12-31T23:59:59`)
+        .then(setAnalyticsFeedback)
+        .finally(() => setAnalyticsFeedbackLoading(false))
+      return
+    }
+
+    if (!selectedAnalyticsMonth) {
+      setAnalyticsFeedback(null)
+      return
+    }
+    const [y, m] = selectedAnalyticsMonth.split("-").map(Number)
+    const lastDay = new Date(y, m, 0).getDate()
+    setAnalyticsFeedbackLoading(true)
+    fetchFeedbackStatsForRange(
+      `${selectedAnalyticsMonth}-01T00:00:00`,
+      `${selectedAnalyticsMonth}-${String(lastDay).padStart(2, "0")}T23:59:59`
+    )
+      .then(setAnalyticsFeedback)
+      .finally(() => setAnalyticsFeedbackLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchFeedbackStatsForRange is a stable helper, not a reactive dep
+  }, [filter, analyticsView, analyticsYear, selectedAnalyticsMonth])
 
   useEffect(() => {
     const pendingIds = requests
@@ -751,12 +790,14 @@ function AdminConsolePageInner() {
   const staffHoursSaved = useMemo(() => {
     const now = new Date()
     const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
-    // Count non-escalated bot answers this month (conversational greetings excluded)
+    // Count genuine bot-resolved answers this month — excludes escalations/unavailable
+    // (staff still had to step in) and conversational/guard replies (greetings, privacy,
+    // frustration, out-of-scope — canned responses that never replace a staff answer).
     const handled = chatHistory.filter((entry) => {
       if (!entry.questionAt) return false
       const entryMonth = entry.questionAt.slice(0, 7)
       if (entryMonth !== thisMonth) return false
-      return entry.mode !== "handoff" && entry.mode !== "unavailable"
+      return !["handoff", "unavailable", "conversational", "guard"].includes(entry.mode ?? "")
     }).length
     const hours = (handled * MINS_PER_INQUIRY) / 60
     return hours > 0 ? parseFloat(hours.toFixed(1)) : 0
@@ -1000,12 +1041,22 @@ function AdminConsolePageInner() {
     @media print { body { padding: 16px; } }
   `
 
-  // Builds the feedback HTML block; filteredRecent = not-helpful entries scoped to report period
-  function buildFeedbackSection(filteredRecent: Array<{ id: number; question: string; answer: string; reason: string | null; comment: string | null; createdAt: string }>) {
-    if (!feedbackStats) return ""
-    const { helpful, notHelpful, total } = feedbackStats.totals
+  // Fetches Helpful/Not-Helpful feedback scoped to a date range (ISO bounds),
+  // so printed reports and the on-screen analytics panel reflect only the
+  // selected year/month instead of all-time data.
+  async function fetchFeedbackStatsForRange(from: string, to: string): Promise<FeedbackReportStats> {
+    try {
+      const res = await fetch(`/api/feedback?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      if (res.ok) return await res.json()
+    } catch {}
+    return { totals: { helpful: 0, notHelpful: 0, total: 0 }, recent: [] }
+  }
+
+  // Builds the feedback HTML block from stats already scoped to the report period
+  function buildFeedbackSection(stats: FeedbackReportStats, periodLabel: string) {
+    const { helpful, notHelpful, total } = stats.totals
     const satisfactionPct = total > 0 ? Math.round((helpful / total) * 100) : 0
-    const notHelpfulRows = filteredRecent.map((item) => `
+    const notHelpfulRows = stats.recent.map((item) => `
       <div class="not-helpful-item">
         <div class="not-helpful-date">
           ${new Date(item.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -1017,7 +1068,7 @@ function AdminConsolePageInner() {
       </div>`).join("")
 
     return `
-  <p class="section-label">Chatbot Response Feedback — All Time</p>
+  <p class="section-label">Chatbot Response Feedback — ${periodLabel}</p>
   <div class="cards">
     <div class="card"><div class="card-label">Helpful</div><div class="card-value" style="color:#059669">${helpful}</div></div>
     <div class="card"><div class="card-label">Not Helpful</div><div class="card-value" style="color:#dc2626">${notHelpful}</div></div>
@@ -1025,14 +1076,14 @@ function AdminConsolePageInner() {
     <div class="card"><div class="card-label">Satisfaction</div><div class="card-value">${satisfactionPct}%</div></div>
   </div>
   ${total > 0 ? `<div class="bar-wrap"><div class="bar-fill" style="width:${satisfactionPct}%"></div></div>` : ""}
-  ${filteredRecent.length > 0 ? `
+  ${stats.recent.length > 0 ? `
   <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.15em;color:#94a3b8;margin-bottom:8px">
-    Not-Helpful Responses ${filteredRecent.length < feedbackStats.recent.length ? "(this period)" : "(recent)"}
+    Not-Helpful Responses (${periodLabel})
   </p>
   <div class="not-helpful-list">${notHelpfulRows}</div>` : total > 0 ? `<p style="font-size:11px;color:#94a3b8;margin-bottom:16px">No not-helpful responses recorded for this period.</p>` : `<p style="font-size:11px;color:#94a3b8;margin-bottom:16px">No feedback submitted yet.</p>`}`
   }
 
-  function printAnalyticsReport() {
+  async function printAnalyticsReport() {
     if (!analyticsData) return
     const { year, months, totals } = analyticsData
     const highPct = totals.questions > 0 ? Math.round((totals.high / totals.questions) * 100) : 0
@@ -1050,10 +1101,12 @@ function AdminConsolePageInner() {
       </tr>`
     }).join("")
 
-    // Filter not-helpful responses to this year
-    const yearRecent = (feedbackStats?.recent ?? []).filter(
-      (item) => new Date(item.createdAt).getFullYear() === year
-    )
+    // Open the window synchronously (same tick as the click) so popup blockers don't step in,
+    // then fill it in once the year-scoped feedback data has loaded.
+    const win = window.open("", "_blank", "width=960,height=720")
+    if (win) { win.document.write("<p style=\"font-family:sans-serif;padding:24px\">Generating report…</p>"); win.document.close() }
+
+    const yearStats = await fetchFeedbackStatsForRange(`${year}-01-01T00:00:00`, `${year}-12-31T23:59:59`)
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -1093,18 +1146,17 @@ function AdminConsolePageInner() {
     </tfoot>
   </table>
 
-  ${buildFeedbackSection(yearRecent)}
+  ${buildFeedbackSection(yearStats, String(year))}
 
   <p class="footer">BYU-Hawaii Financial Aid &amp; Scholarships &nbsp;·&nbsp; (808) 675-3316 &nbsp;·&nbsp; financialaid@byuh.edu &nbsp;·&nbsp; Lorenzo Snow Building Room 180</p>
 </body>
 </html>`
 
-    const win = window.open("", "_blank", "width=960,height=720")
-    if (win) { win.document.write(html); win.document.close(); win.focus(); win.print() }
+    if (win) { win.document.open(); win.document.write(html); win.document.close(); win.focus(); win.print() }
   }
 
-  function printMonthlyReport() {
-    if (!monthlyDetail) return
+  async function printMonthlyReport() {
+    if (!monthlyDetail || !selectedAnalyticsMonth) return
     const { label, days, totals } = monthlyDetail
     const highPct = totals.questions > 0 ? Math.round((totals.high / totals.questions) * 100) : 0
     const activeDays = days.filter((d) => d.questions > 0 || d.escalations > 0)
@@ -1122,12 +1174,17 @@ function AdminConsolePageInner() {
       </tr>`
     }).join("") || `<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:24px">No activity recorded this month.</td></tr>`
 
-    // Filter not-helpful responses to this month; fall back to all recent if none found
-    const monthPrefix = selectedAnalyticsMonth ?? ""
-    const monthFiltered = (feedbackStats?.recent ?? []).filter(
-      (item) => item.createdAt.startsWith(monthPrefix)
+    // Open the window synchronously (same tick as the click) so popup blockers don't step in,
+    // then fill it in once the month-scoped feedback data has loaded.
+    const win = window.open("", "_blank", "width=960,height=720")
+    if (win) { win.document.write("<p style=\"font-family:sans-serif;padding:24px\">Generating report…</p>"); win.document.close() }
+
+    const [year, monthNum] = selectedAnalyticsMonth.split("-").map(Number)
+    const lastDay = new Date(year, monthNum, 0).getDate()
+    const monthStats = await fetchFeedbackStatsForRange(
+      `${selectedAnalyticsMonth}-01T00:00:00`,
+      `${selectedAnalyticsMonth}-${String(lastDay).padStart(2, "0")}T23:59:59`
     )
-    const monthRecent = monthFiltered.length > 0 ? monthFiltered : (feedbackStats?.recent ?? [])
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -1167,14 +1224,13 @@ function AdminConsolePageInner() {
     </tfoot>
   </table>
 
-  ${buildFeedbackSection(monthRecent)}
+  ${buildFeedbackSection(monthStats, label)}
 
   <p class="footer">BYU-Hawaii Financial Aid &amp; Scholarships &nbsp;·&nbsp; (808) 675-3316 &nbsp;·&nbsp; financialaid@byuh.edu &nbsp;·&nbsp; Lorenzo Snow Building Room 180</p>
 </body>
 </html>`
 
-    const win = window.open("", "_blank", "width=960,height=720")
-    if (win) { win.document.write(html); win.document.close(); win.focus(); win.print() }
+    if (win) { win.document.open(); win.document.write(html); win.document.close(); win.focus(); win.print() }
   }
 
 
@@ -1368,20 +1424,18 @@ function AdminConsolePageInner() {
                 </h2>
                 <p className="mt-1 text-sm text-[#787878]">{activeFilter.description}</p>
               </div>
-              {(isOverviewView || isAnalyticsView) && (
-                <button
-                  type="button"
-                  onClick={handleManualRefresh}
-                  disabled={manualRefreshing}
-                  aria-label="Refresh"
-                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/7 bg-ad-surface text-ad-muted transition hover:bg-ad-raised hover:text-ad-text disabled:opacity-50"
-                  title="Refresh"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`h-4 w-4 ${manualRefreshing ? "animate-spin" : ""}`}>
-                    <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z" clipRule="evenodd" />
-                  </svg>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleManualRefresh}
+                disabled={manualRefreshing}
+                aria-label="Refresh"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/7 bg-ad-surface text-ad-muted transition hover:bg-ad-raised hover:text-ad-text disabled:opacity-50"
+                title="Refresh"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`h-4 w-4 ${manualRefreshing ? "animate-spin" : ""}`}>
+                  <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08.932.75.75 0 0 1-1.3-.75 6 6 0 0 1 9.44-1.242l.842.84V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.241l-.84-.84v1.371a.75.75 0 0 1-1.5 0V9.591a.75.75 0 0 1 .75-.75H5.35a.75.75 0 0 1 0 1.5H3.98l.841.841a4.5 4.5 0 0 0 7.08-.932.75.75 0 0 1 1.025-.273Z" clipRule="evenodd" />
+                </svg>
+              </button>
               <button
                 type="button"
                 onClick={toggleDarkMode}
@@ -2094,18 +2148,24 @@ function AdminConsolePageInner() {
                   )}
                 </section>
 
-                {/* Chatbot Response Feedback */}
+                {/* Chatbot Response Feedback — scoped to the selected year/month above */}
                 <section className="rounded-lg border border-white/7 bg-ad-surface px-6 py-6 shadow-sm">
                   <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-ad-dim">Chatbot Response Feedback</p>
-                  <p className="mb-5 text-xs text-[#787878]">Student ratings on chatbot responses — all time</p>
+                  <p className="mb-5 text-xs text-[#787878]">
+                    Student ratings on chatbot responses — {analyticsView === "yearly" ? analyticsYear : (monthlyDetail?.label ?? "select a month")}
+                  </p>
 
-                  {feedbackStats ? (
+                  {analyticsView === "monthly" && !selectedAnalyticsMonth ? (
+                    <p className="py-10 text-center text-sm text-ad-dim">Select a month above to view its feedback.</p>
+                  ) : analyticsFeedbackLoading || !analyticsFeedback ? (
+                    <p className="py-6 text-center text-sm text-ad-dim">Loading feedback data...</p>
+                  ) : (
                     <>
                       <div className="mb-6 grid gap-4 sm:grid-cols-3">
                         {[
-                          { label: "Helpful", value: feedbackStats.totals.helpful, color: "text-emerald-400", hoverBorder: "hover:border-emerald-500/40 hover:bg-emerald-500/8", activeBorder: "border-emerald-500/40 bg-emerald-500/8", feedbackType: "helpful" as const, hint: "View helpful chats →" },
-                          { label: "Not Helpful", value: feedbackStats.totals.notHelpful, color: "text-red-500", hoverBorder: "hover:border-ad-danger/50 hover:bg-ad-danger/8", activeBorder: "border-ad-danger/50 bg-ad-danger/8", feedbackType: "not-helpful" as const, hint: "View not-helpful chats →" },
-                          { label: "Total Rated", value: feedbackStats.totals.total, color: "text-[#9E1B34]", feedbackType: null as null, hint: null, hoverBorder: "", activeBorder: "" },
+                          { label: "Helpful", value: analyticsFeedback.totals.helpful, color: "text-emerald-400", hoverBorder: "hover:border-emerald-500/40 hover:bg-emerald-500/8", activeBorder: "border-emerald-500/40 bg-emerald-500/8", feedbackType: "helpful" as const, hint: "View helpful chats →" },
+                          { label: "Not Helpful", value: analyticsFeedback.totals.notHelpful, color: "text-red-500", hoverBorder: "hover:border-ad-danger/50 hover:bg-ad-danger/8", activeBorder: "border-ad-danger/50 bg-ad-danger/8", feedbackType: "not-helpful" as const, hint: "View not-helpful chats →" },
+                          { label: "Total Rated", value: analyticsFeedback.totals.total, color: "text-[#9E1B34]", feedbackType: null as null, hint: null, hoverBorder: "", activeBorder: "" },
                         ].map((item) =>
                           item.feedbackType ? (
                             <button
@@ -2119,9 +2179,9 @@ function AdminConsolePageInner() {
                             >
                               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">{item.label}</p>
                               <p className={`mt-1 text-2xl font-bold ${item.color}`}>{item.value}</p>
-                              {feedbackStats.totals.total > 0 && (
+                              {analyticsFeedback.totals.total > 0 && (
                                 <p className="mt-0.5 text-xs text-ad-dim">
-                                  {Math.round((item.value / feedbackStats.totals.total) * 100)}%
+                                  {Math.round((item.value / analyticsFeedback.totals.total) * 100)}%
                                 </p>
                               )}
                               <p className="mt-2 text-[10px] font-semibold text-ad-muted opacity-0 transition group-hover:opacity-100">
@@ -2132,9 +2192,9 @@ function AdminConsolePageInner() {
                             <div key={item.label} className="rounded-lg border border-white/7 bg-ad-raised px-6 py-5">
                               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-ad-dim">{item.label}</p>
                               <p className={`mt-1 text-2xl font-bold ${item.color}`}>{item.value}</p>
-                              {feedbackStats.totals.total > 0 && (
+                              {analyticsFeedback.totals.total > 0 && (
                                 <p className="mt-0.5 text-xs text-ad-dim">
-                                  {Math.round((item.value / feedbackStats.totals.total) * 100)}%
+                                  {Math.round((item.value / analyticsFeedback.totals.total) * 100)}%
                                 </p>
                               )}
                             </div>
@@ -2142,22 +2202,22 @@ function AdminConsolePageInner() {
                         )}
                       </div>
 
-                      {feedbackStats.totals.total > 0 && (
+                      {analyticsFeedback.totals.total > 0 && (
                         <div className="mb-5 h-3 w-full overflow-hidden rounded-full bg-white/8">
                           <div
                             className="h-full rounded-full bg-emerald-500 transition-all"
-                            style={{ width: `${Math.round((feedbackStats.totals.helpful / feedbackStats.totals.total) * 100)}%` }}
+                            style={{ width: `${Math.round((analyticsFeedback.totals.helpful / analyticsFeedback.totals.total) * 100)}%` }}
                           />
                         </div>
                       )}
 
-                      {feedbackStats.recent.length > 0 && (
+                      {analyticsFeedback.recent.length > 0 && (
                         <>
                           <p ref={notHelpfulSectionRef} className="mb-5 scroll-mt-8 text-[10px] font-bold uppercase tracking-[0.18em] text-ad-dim">
-                            Recent Not-Helpful Responses
+                            Not-Helpful Responses — {analyticsView === "yearly" ? analyticsYear : (monthlyDetail?.label ?? "")}
                           </p>
                           <div className="space-y-4">
-                            {feedbackStats.recent.map((item) => (
+                            {analyticsFeedback.recent.map((item) => (
                               <div key={item.id} className="rounded-lg border border-ad-danger/20 bg-ad-danger/10 px-6 py-5">
                                 <div className="mb-2 flex flex-wrap items-center gap-2">
                                   <p className="text-[10px] font-bold uppercase tracking-wider text-red-400">
@@ -2183,12 +2243,10 @@ function AdminConsolePageInner() {
                         </>
                       )}
 
-                      {feedbackStats.totals.total === 0 && (
-                        <p className="py-6 text-center text-sm text-ad-dim">No feedback submitted yet.</p>
+                      {analyticsFeedback.totals.total === 0 && (
+                        <p className="py-6 text-center text-sm text-ad-dim">No feedback submitted for this period.</p>
                       )}
                     </>
-                  ) : (
-                    <p className="py-6 text-center text-sm text-ad-dim">Loading feedback data...</p>
                   )}
                 </section>
               </div>

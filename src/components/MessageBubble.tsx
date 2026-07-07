@@ -8,7 +8,7 @@ import type { UIText } from "@/lib/uiText"
 type Props = {
   role: "user" | "assistant" | "agent"
   content: string
-  mode?: "grounded" | "demo" | "unavailable" | "handoff" | "session-ended"
+  mode?: "grounded" | "demo" | "unavailable" | "conversational" | "guard" | "handoff" | "session-ended"
   sources?: string[]
   agentName?: string
   precedingQuestion?: string
@@ -65,7 +65,7 @@ function SourcePills({ sources, uiText }: { sources: string[]; uiText: UIText })
 }
 
 function GroundingLabel({ mode, hasSources, uiText }: { mode?: Props["mode"]; hasSources: boolean; uiText: UIText }) {
-  if (mode === "handoff") return null
+  if (mode === "handoff" || mode === "conversational" || mode === "guard") return null
 
   const grounded = mode === "grounded" || hasSources
   return (

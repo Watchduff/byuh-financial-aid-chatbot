@@ -18,8 +18,9 @@ function parseSources(value: string | null) {
 
 function inferConfidence(message: MessageRow | undefined): "high" | "low" | null {
   if (!message) return "low"
-  // Conversational openers (greetings, thanks, etc.) have no RAG confidence
-  if (message.responseMode === "conversational") return null
+  // Conversational openers and canned policy guards (privacy, frustration,
+  // escalation, out-of-scope) never touch retrieval — no RAG confidence to report
+  if (message.responseMode === "conversational" || message.responseMode === "guard") return null
   if (message.responseConfidence === "high" || message.responseConfidence === "low") {
     return message.responseConfidence
   }

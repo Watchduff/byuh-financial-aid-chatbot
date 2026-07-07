@@ -13,7 +13,9 @@ const UNAVAILABLE_PATTERN =
 
 function inferConfidence(message: MessageRow | undefined): "high" | "low" | null {
   if (!message) return "low"
-  if (message.responseMode === "conversational") return null
+  // Conversational greetings/openers and canned policy guards (privacy, frustration,
+  // escalation, out-of-scope) never touch retrieval — exclude from high/low counts
+  if (message.responseMode === "conversational" || message.responseMode === "guard") return null
   if (message.responseConfidence === "high" || message.responseConfidence === "low") {
     return message.responseConfidence
   }
@@ -165,7 +167,7 @@ export async function GET(request: Request) {
     )
     const retrievalResponses = assistantMessages.filter((message) => parseSources(message.responseSources).length > 0)
     const generativeResponses = assistantMessages.filter(
-      (message) => !["unavailable", "handoff", "session-ended"].includes(message.responseMode ?? "")
+      (message) => !["unavailable", "conversational", "guard", "handoff", "session-ended"].includes(message.responseMode ?? "")
     )
 
     const confidenceScores = assistantMessages
@@ -201,7 +203,7 @@ export async function GET(request: Request) {
       return {
         year,
         generative: yearAssistants.filter(
-          (message) => !["unavailable", "handoff", "session-ended"].includes(message.responseMode ?? "")
+          (message) => !["unavailable", "conversational", "guard", "handoff", "session-ended"].includes(message.responseMode ?? "")
         ).length,
         retrieval: yearAssistants.filter((message) => parseSources(message.responseSources).length > 0).length,
         lowConfidence: yearAssistants.filter((message) => inferConfidence(message) === "low").length,

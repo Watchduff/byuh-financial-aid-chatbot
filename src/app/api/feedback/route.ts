@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { db } from "@/db/index"
 import { messageFeedback } from "@/db/schema"
-import { and, desc, count, eq, isNotNull, sql } from "drizzle-orm"
+import { and, desc, count, eq, gte, isNotNull, lte, sql } from "drizzle-orm"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
@@ -40,8 +40,22 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    // Optional date range (ISO strings) so callers — e.g. the yearly/monthly
+    // printed reports — can scope totals and the not-helpful list to a period
+    // instead of always getting all-time data.
+    const url = new URL(req.url)
+    const fromParam = url.searchParams.get("from")
+    const toParam = url.searchParams.get("to")
+    const from = fromParam ? new Date(fromParam) : null
+    const to = toParam ? new Date(toParam) : null
+    const dateFilter = [
+      from && !Number.isNaN(from.getTime()) ? gte(messageFeedback.createdAt, from) : undefined,
+      to && !Number.isNaN(to.getTime()) ? lte(messageFeedback.createdAt, to) : undefined,
+    ].filter((clause): clause is NonNullable<typeof clause> => clause !== undefined)
+    const scoped = dateFilter.length > 0 ? and(...dateFilter) : undefined
+
     const [totals] = await db
       .select({
         helpful: count(sql`CASE WHEN ${messageFeedback.feedback} = 'helpful' THEN 1 END`),
@@ -49,13 +63,18 @@ export async function GET() {
         total: count(),
       })
       .from(messageFeedback)
+      .where(scoped)
+
+    const recentWhere = scoped
+      ? and(eq(messageFeedback.feedback, "not-helpful"), scoped)
+      : eq(messageFeedback.feedback, "not-helpful")
 
     const recent = await db
       .select()
       .from(messageFeedback)
-      .where(eq(messageFeedback.feedback, "not-helpful"))
+      .where(recentWhere)
       .orderBy(desc(messageFeedback.createdAt))
-      .limit(20)
+      .limit(scoped ? 500 : 20)
 
     const helpfulConvIds = await db
       .selectDistinct({ conversationId: messageFeedback.conversationId })
