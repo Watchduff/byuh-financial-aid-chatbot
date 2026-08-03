@@ -19,6 +19,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
     "@neondatabase/serverless": "^1.0.2",
+    "@vercel/speed-insights": "^2.0.0",
     "ai": "^6.0.144",
     "axios": "^1.13.6",
     "cheerio": "^1.2.0",
